@@ -81,15 +81,16 @@
                   </svg>
                 </div>
                 <h2 class="lock-title">Video Locked</h2>
-                <p class="lock-subtitle">Unlock Video Access</p>
-                <div class="lock-price-tag">₹9</div>
-                <button id="btnUnlockVideo" class="btn-unlock-premium" type="button" aria-label="Unlock for ₹9">
+                <p class="lock-subtitle">Unlock Premium Access</p>
+                <div class="lock-price-tag">₹9<span class="lock-price-period">/month</span></div>
+                <button id="btnUnlockVideo" class="btn-unlock-premium" type="button" aria-label="Unlock for ₹9/month">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                   </svg>
-                  <span>Unlock for ₹9</span>
+                  <span>Unlock for ₹9/month</span>
                 </button>
+                <div id="unlockErrorAlert" style="display: none; color: #ff6b6b; font-size: 0.8125rem; margin-top: 10px; max-width: 320px; text-align: center;"></div>
                 <div class="lock-restore-row">
                   <button id="btnOpenRestoreModal" class="btn-restore-link" type="button">Already purchased? Restore access</button>
                 </div>
@@ -208,7 +209,7 @@
         <div class="modal-footer" style="flex-direction: column; gap: 8px;">
           <button type="submit" id="btnSubmitPayment" class="btn-primary-dark" style="width: 100%; justify-content: center; height: 48px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            <span>Proceed to Payment (₹9)</span>
+            <span>Proceed to Payment (₹9/month)</span>
           </button>
           <div id="testModeNotice" style="width: 100%; text-align: center; font-size: 0.75rem; color: var(--text-muted); display: none;">
             <span>Development Mode Active · Razorpay Test Verification</span>
@@ -262,7 +263,7 @@
 
       // Check for redirect query parameters from Razorpay Payment Link or Checkout
       const urlParams = new URLSearchParams(window.location.search);
-      const paymentId = urlParams.get('razorpay_payment_id');
+      const paymentId = urlParams.get('razorpay_payment_id') || urlParams.get('payment_id');
       const orderId = urlParams.get('razorpay_order_id');
       const paymentLinkId = urlParams.get('razorpay_payment_link_id');
       const paymentLinkRef = urlParams.get('razorpay_payment_link_reference_id');
@@ -292,8 +293,21 @@
             })
           });
           const vData = await vRes.json();
-          if (vRes.ok && vData.success) {
+          if (vRes.ok && (vData.unlocked || vData.success)) {
             window.history.replaceState({}, document.title, window.location.pathname);
+            const toast = document.getElementById('toastNotice');
+            if (toast) {
+              toast.textContent = 'Payment successful! Video unlocked.';
+              toast.classList.add('show');
+              setTimeout(() => toast.classList.remove('show'), 3500);
+            }
+          } else {
+            const toast = document.getElementById('toastNotice');
+            if (toast) {
+              toast.textContent = vData.error || 'Payment verification failed.';
+              toast.classList.add('show');
+              setTimeout(() => toast.classList.remove('show'), 4000);
+            }
           }
         } catch (vErr) {
           console.error('Payment redirect verification error:', vErr);
@@ -436,13 +450,218 @@
     const checkoutModal = document.getElementById('checkoutModal');
     const restoreModal = document.getElementById('restoreModal');
 
-    document.getElementById('btnUnlockVideo').addEventListener('click', () => {
-      document.getElementById('checkoutErrorBanner').style.display = 'none';
-      const label = document.getElementById('checkoutVideoLabel');
-      if (label && activeVideoData) {
-        label.textContent = `Unlock: ${activeVideoData.title.substring(0, 32)}...`;
+    // Primary payment initiation flow
+    async function startPaymentFlow(prefillEmail = '', prefillPhone = '') {
+      const unlockBtn = document.getElementById('btnUnlockVideo');
+      const submitBtn = document.getElementById('btnSubmitPayment');
+      const errorAlert = document.getElementById('unlockErrorAlert');
+      const checkoutError = document.getElementById('checkoutErrorBanner');
+
+      if (errorAlert) errorAlert.style.display = 'none';
+      if (checkoutError) checkoutError.style.display = 'none';
+
+      if (unlockBtn) {
+        unlockBtn.disabled = true;
+        const span = unlockBtn.querySelector('span');
+        if (span) span.textContent = 'Opening Payment...';
       }
-      checkoutModal.style.display = 'flex';
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Opening Payment...';
+      }
+
+      function resetButtons() {
+        if (unlockBtn) {
+          unlockBtn.disabled = false;
+          const span = unlockBtn.querySelector('span');
+          if (span) span.textContent = 'Unlock for ₹9/month';
+        }
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <span>Proceed to Payment (₹9/month)</span>
+          `;
+        }
+      }
+
+      function showErrorMessage(msg) {
+        resetButtons();
+        if (errorAlert) {
+          errorAlert.textContent = msg;
+          errorAlert.style.display = 'block';
+        }
+        if (checkoutError) {
+          checkoutError.textContent = msg;
+          checkoutError.style.display = 'block';
+        }
+        const toast = document.getElementById('toastNotice');
+        if (toast) {
+          toast.textContent = msg;
+          toast.classList.add('show');
+          setTimeout(() => toast.classList.remove('show'), 3500);
+        }
+      }
+
+      try {
+        // 1. Get payment configuration from server
+        const configRes = await fetch('/api/entitlements/config');
+        if (!configRes.ok) {
+          showErrorMessage('Unable to retrieve payment configuration. Please try again.');
+          return;
+        }
+        const config = await configRes.json();
+
+        // 2. Create order on server for THIS exact video ID
+        const orderRes = await fetch('/api/entitlements/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_id: currentVideoId,
+            email: prefillEmail,
+            phone: prefillPhone
+          })
+        });
+
+        const orderData = await orderRes.json();
+        if (!orderRes.ok || !orderData.order_id) {
+          showErrorMessage(orderData.error || 'Failed to initialize payment gateway.');
+          return;
+        }
+
+        // 3. Try Razorpay standard checkout popup first if SDK and key are available
+        const hasRealRazorpay = typeof window.Razorpay === 'function' && 
+                                orderData.key_id && 
+                                !orderData.key_id.includes('mock') && 
+                                !orderData.is_mock;
+
+        if (hasRealRazorpay) {
+          const options = {
+            key: orderData.key_id,
+            order_id: orderData.order_id,
+            amount: orderData.amount || 900,
+            currency: 'INR',
+            name: 'Latest Viral Videos 2026',
+            description: `Unlock Video #${currentVideoId} (₹9/month)`,
+            image: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>',
+            prefill: {
+              email: prefillEmail || '',
+              contact: prefillPhone || ''
+            },
+            notes: {
+              video_id: String(currentVideoId)
+            },
+            theme: { color: '#000000' },
+            handler: async function (response) {
+              if (unlockBtn) {
+                const s = unlockBtn.querySelector('span');
+                if (s) s.textContent = 'Verifying payment...';
+              }
+              try {
+                const verifyRes = await fetch('/api/entitlements/verify', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    video_id: currentVideoId,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_signature: response.razorpay_signature,
+                    email: prefillEmail,
+                    phone: prefillPhone
+                  })
+                });
+
+                const verifyData = await verifyRes.json();
+                if (!verifyRes.ok || !verifyData.unlocked) {
+                  throw new Error(verifyData.error || 'Server-side payment verification failed');
+                }
+
+                if (checkoutModal) checkoutModal.style.display = 'none';
+                unlockVideoDirectly(verifyData.video_url || verifyData.stream_url);
+              } catch (vErr) {
+                showErrorMessage(vErr.message);
+              } finally {
+                resetButtons();
+              }
+            },
+            modal: {
+              ondismiss: function () {
+                resetButtons();
+              }
+            }
+          };
+
+          const rzp = new window.Razorpay(options);
+          rzp.on('payment.failed', function (resp) {
+            showErrorMessage(resp.error?.description || 'Payment failed or was cancelled.');
+          });
+          rzp.open();
+          return;
+        }
+
+        // 4. Try Razorpay Payment Link (configured in production: https://rzp.io/rzp/sYfgdwS)
+        const paymentLinkUrl = orderData.payment_link_url || config.payment_link_url;
+        if (paymentLinkUrl) {
+          // Preserve current video ID in session/cookie for return flow
+          try {
+            sessionStorage.setItem('vh_pending_checkout_vid', String(currentVideoId));
+            localStorage.setItem('vh_pending_checkout_vid', String(currentVideoId));
+            document.cookie = `vh_pending_vid=${currentVideoId}; path=/; max-age=3600`;
+          } catch (_) {}
+
+          // Navigate to Razorpay Payment Link
+          window.location.href = paymentLinkUrl;
+          return;
+        }
+
+        // 5. If neither is available and not in test mode, display visible error
+        if (!config.is_configured && !config.test_mode) {
+          showErrorMessage('Razorpay payment gateway is not configured on this server. Please contact support.');
+          return;
+        }
+
+        // 6. Test mode fallback (when running automated tests / local mock without keys)
+        if (checkoutModal && checkoutModal.style.display === 'flex') {
+          const verifyRes = await fetch('/api/entitlements/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              video_id: currentVideoId,
+              razorpay_payment_id: 'pay_test_' + Date.now(),
+              razorpay_order_id: orderData.order_id,
+              razorpay_signature: 'sig_test_valid',
+              email: prefillEmail,
+              phone: prefillPhone
+            })
+          });
+
+          const verifyData = await verifyRes.json();
+          if (!verifyRes.ok || !verifyData.unlocked) {
+            throw new Error(verifyData.error || 'Server-side payment verification failed');
+          }
+
+          checkoutModal.style.display = 'none';
+          unlockVideoDirectly(verifyData.video_url || verifyData.stream_url);
+          resetButtons();
+          return;
+        }
+
+        // Otherwise open checkout modal
+        document.getElementById('checkoutErrorBanner').style.display = 'none';
+        const label = document.getElementById('checkoutVideoLabel');
+        if (label && activeVideoData) {
+          label.textContent = `Unlock: ${activeVideoData.title.substring(0, 32)}...`;
+        }
+        checkoutModal.style.display = 'flex';
+        resetButtons();
+
+      } catch (err) {
+        showErrorMessage(err.message || 'Payment initiation failed. Please try again.');
+      }
+    }
+
+    document.getElementById('btnUnlockVideo').addEventListener('click', () => {
+      startPaymentFlow();
     });
 
     document.getElementById('btnCloseCheckoutModal').addEventListener('click', () => {
@@ -467,134 +686,12 @@
       if (e.target === restoreModal) restoreModal.style.display = 'none';
     });
 
-    // Checkout Form Submission & Razorpay Integration
+    // Checkout Form Submission
     document.getElementById('checkoutForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('checkoutEmail').value.trim();
       const phone = document.getElementById('checkoutPhone').value.trim();
-      const errorBanner = document.getElementById('checkoutErrorBanner');
-      const submitBtn = document.getElementById('btnSubmitPayment');
-
-      errorBanner.style.display = 'none';
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Preparing Payment...';
-
-      try {
-        const createRes = await fetch('/api/entitlements/create-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ video_id: currentVideoId, email, phone })
-        });
-
-        const orderData = await createRes.json();
-        if (!createRes.ok || !orderData.order_id) {
-          throw new Error(orderData.error || 'Failed to initialize payment order');
-        }
-
-        const orderId = orderData.order_id;
-        const keyId = orderData.key_id;
-
-        // If Razorpay SDK is available and live credentials active
-        if (typeof window.Razorpay === 'function' && !orderData.is_test_mode) {
-          const options = {
-            key: keyId,
-            order_id: orderId,
-            amount: orderData.amount || 900,
-            currency: 'INR',
-            name: 'Latest Viral Videos 2026',
-            description: `Unlock Video #${currentVideoId} (₹9)`,
-            image: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>',
-            prefill: {
-              email: email,
-              contact: phone || ''
-            },
-            notes: {
-              video_id: String(currentVideoId)
-            },
-            theme: {
-              color: '#000000'
-            },
-            handler: async function (response) {
-              submitBtn.textContent = 'Verifying with server...';
-              try {
-                const verifyRes = await fetch('/api/entitlements/verify', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    video_id: currentVideoId,
-                    razorpay_payment_id: response.razorpay_payment_id,
-                    razorpay_order_id: response.razorpay_order_id,
-                    razorpay_signature: response.razorpay_signature,
-                    email,
-                    phone
-                  })
-                });
-
-                const verifyData = await verifyRes.json();
-                if (!verifyRes.ok || !verifyData.success) {
-                  throw new Error(verifyData.error || 'Server-side payment verification failed');
-                }
-
-                checkoutModal.style.display = 'none';
-                unlockVideoDirectly(verifyData.video_url);
-              } catch (vErr) {
-                errorBanner.textContent = vErr.message;
-                errorBanner.style.display = 'block';
-              } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = `
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                  <span>Proceed to Payment (₹9)</span>
-                `;
-              }
-            },
-            modal: {
-              ondismiss: function () {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = `
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                  <span>Proceed to Payment (₹9)</span>
-                `;
-              }
-            }
-          };
-
-          const rzp = new window.Razorpay(options);
-          rzp.open();
-        } else {
-          // Development / Test mode execution
-          submitBtn.textContent = 'Verifying Server Entitlement...';
-          const verifyRes = await fetch('/api/entitlements/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              video_id: currentVideoId,
-              razorpay_payment_id: 'pay_test_' + Date.now(),
-              razorpay_order_id: orderId,
-              razorpay_signature: 'sig_test_valid',
-              email,
-              phone
-            })
-          });
-
-          const verifyData = await verifyRes.json();
-          if (!verifyRes.ok || !verifyData.success) {
-            throw new Error(verifyData.error || 'Server-side payment verification failed');
-          }
-
-          checkoutModal.style.display = 'none';
-          unlockVideoDirectly(verifyData.video_url);
-        }
-      } catch (err) {
-        errorBanner.textContent = err.message || 'Payment initiation failed';
-        errorBanner.style.display = 'block';
-      } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = `
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          <span>Proceed to Payment (₹9)</span>
-        `;
-      }
+      startPaymentFlow(email, phone);
     });
 
     // Restore Access Form Submission

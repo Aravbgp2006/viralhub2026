@@ -305,6 +305,28 @@ async function initDatabase() {
           CREATE INDEX IF NOT EXISTS idx_entitlements_video_id ON entitlements (video_id);
           CREATE INDEX IF NOT EXISTS idx_entitlements_payment_id ON entitlements (razorpay_payment_id);
           CREATE INDEX IF NOT EXISTS idx_entitlements_status ON entitlements (status);
+
+          -- Create PostgreSQL video_entitlements table (per-video purchase model)
+          CREATE TABLE IF NOT EXISTS video_entitlements (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            video_id INTEGER NOT NULL,
+            payment_id TEXT,
+            amount INTEGER DEFAULT 900,
+            status VARCHAR(50) NOT NULL DEFAULT 'active',
+            purchased_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMPTZ,
+            customer_email TEXT,
+            customer_phone TEXT,
+            CONSTRAINT unique_user_video_purchase UNIQUE (user_id, video_id)
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_ventitlements_user_vid ON video_entitlements (user_id, video_id);
+          CREATE INDEX IF NOT EXISTS idx_ventitlements_payment_id ON video_entitlements (payment_id);
+          CREATE INDEX IF NOT EXISTS idx_ventitlements_video_id ON video_entitlements (video_id);
+
+          ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+          ALTER TABLE video_entitlements ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
         `);
         break;
       } catch (err) {
@@ -377,6 +399,24 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_entitlements_video_id ON entitlements (video_id);
       CREATE INDEX IF NOT EXISTS idx_entitlements_payment_id ON entitlements (razorpay_payment_id);
       CREATE INDEX IF NOT EXISTS idx_entitlements_status ON entitlements (status);
+
+      CREATE TABLE IF NOT EXISTS video_entitlements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        video_id INTEGER NOT NULL,
+        payment_id TEXT,
+        amount INTEGER DEFAULT 900,
+        status TEXT NOT NULL DEFAULT 'active',
+        purchased_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME,
+        customer_email TEXT,
+        customer_phone TEXT,
+        UNIQUE(user_id, video_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ventitlements_user_vid ON video_entitlements (user_id, video_id);
+      CREATE INDEX IF NOT EXISTS idx_ventitlements_payment_id ON video_entitlements (payment_id);
+      CREATE INDEX IF NOT EXISTS idx_ventitlements_video_id ON video_entitlements (video_id);
     `;
 
     await query.raw(createTableSql);

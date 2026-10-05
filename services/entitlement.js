@@ -47,14 +47,18 @@ function isRazorpayConfigured() {
  * Public configuration for frontend checkout
  */
 function getPublicEntitlementConfig(videoId) {
+  const isConfigured = isRazorpayConfigured();
+  const hasLink = Boolean(RAZORPAY_PAYMENT_LINK_URL);
   return {
     key_id: RAZORPAY_KEY_ID || 'rzp_test_mock_viralhub',
     price: VIDEO_PRICE,
+    plan_price: '₹9/month',
     amount: VIDEO_AMOUNT_PAISE,
     currency: 'INR',
-    is_configured: isRazorpayConfigured(),
-    test_mode: !RAZORPAY_KEY_ID || RAZORPAY_KEY_ID.startsWith('rzp_test_') || RAZORPAY_KEY_ID.includes('mock'),
-    payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null
+    is_configured: isConfigured || hasLink,
+    has_payment_link: hasLink,
+    payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null,
+    test_mode: !RAZORPAY_KEY_ID || RAZORPAY_KEY_ID.startsWith('rzp_test_') || RAZORPAY_KEY_ID.includes('mock')
   };
 }
 
@@ -143,8 +147,10 @@ async function hasVideoEntitlement(reqOrUserId, videoId, optionalEmail) {
 
   let userId = null;
   let email = null;
+  let reqObj = null;
 
   if (typeof reqOrUserId === 'object' && reqOrUserId !== null) {
+    reqObj = reqOrUserId;
     const ctx = resolveUserContext(reqOrUserId);
     userId = ctx.userId;
     email = ctx.email;
@@ -153,30 +159,59 @@ async function hasVideoEntitlement(reqOrUserId, videoId, optionalEmail) {
     email = optionalEmail || null;
   }
 
-  if (!userId && !email) return false;
+  // 1. Query active per-video entitlement from database
+  if (userId || email) {
+    try {
+      const normalizedEmail = (email || '').trim().toLowerCase();
+      const expiryCheck = isPostgres
+        ? '(expires_at IS NULL OR expires_at > NOW())'
+        : "(expires_at IS NULL OR expires_at > datetime('now'))";
 
-  try {
-    const normalizedEmail = (email || '').trim().toLowerCase();
+      const row = await query.get(
+        `SELECT id FROM entitlements 
+         WHERE video_id = $1 
+           AND status = 'active'
+           AND (
+             user_id = $2 
+             OR (customer_email IS NOT NULL AND customer_email != '' AND LOWER(customer_email) = $3)
+           )
+           AND ${expiryCheck}
+         LIMIT 1`,
+        [vid, userId || '', normalizedEmail]
+      );
+      if (row) return true;
 
-    // Query active entitlement for this user_id or email and this specific video_id
-    const row = await query.get(
-      `SELECT id, user_id, video_id, status, customer_email, razorpay_payment_id, created_at 
-       FROM entitlements 
-       WHERE video_id = $1 
-         AND status = 'active'
-         AND (
-           user_id = $2 
-           OR (customer_email IS NOT NULL AND customer_email != '' AND LOWER(customer_email) = $3)
-         )
-       LIMIT 1`,
-      [vid, userId || '', normalizedEmail]
-    );
-
-    return Boolean(row);
-  } catch (err) {
-    console.error(`Error checking video entitlement for video ${vid}:`, err.message);
-    return false;
+      const vRow = await query.get(
+        `SELECT id FROM video_entitlements 
+         WHERE video_id = $1 
+           AND status = 'active'
+           AND (
+             user_id = $2 
+             OR (customer_email IS NOT NULL AND customer_email != '' AND LOWER(customer_email) = $3)
+           )
+           AND ${expiryCheck}
+         LIMIT 1`,
+        [vid, userId || '', normalizedEmail]
+      );
+      if (vRow) return true;
+    } catch (err) {
+      console.error(`Error checking video entitlement for video ${vid}:`, err.message);
+    }
   }
+
+  // 2. Legacy subscriber token fallback if req object provided
+  if (reqObj && reqObj.cookies?.vh_sub_token) {
+    try {
+      const { verifySubscriberToken, hasActiveSubscription } = require('./subscription');
+      const subPayload = verifySubscriberToken(reqObj.cookies.vh_sub_token);
+      if (subPayload) {
+        const activeSub = await hasActiveSubscription(subPayload.user_id, subPayload.email);
+        if (activeSub) return true;
+      }
+    } catch (_) {}
+  }
+
+  return false;
 }
 
 /**
@@ -227,7 +262,9 @@ async function createOrderForVideo(params) {
         video_id: vid,
         video_title: video.title,
         email: normalizedEmail,
-        is_test_mode: RAZORPAY_KEY_ID.startsWith('rzp_test_')
+        is_mock: false,
+        is_test_mode: false,
+        is_configured: true
       };
     } catch (err) {
       console.error('Error creating Razorpay order for video:', err);
@@ -245,7 +282,9 @@ async function createOrderForVideo(params) {
     video_id: vid,
     video_title: video.title,
     email: normalizedEmail,
-    is_test_mode: true
+    is_mock: true,
+    is_test_mode: true,
+    is_configured: false
   };
 }
 
@@ -357,6 +396,22 @@ async function verifyAndCreateEntitlement(params) {
       razorpay_order_id || null,
       VIDEO_AMOUNT_PAISE
     ]);
+
+    // Also populate video_entitlements table
+    try {
+      await query.raw(
+        `INSERT INTO video_entitlements 
+          (user_id, video_id, payment_id, amount, status, purchased_at, customer_email, customer_phone)
+         VALUES ($1, $2, $3, $4, 'active', CURRENT_TIMESTAMP, $5, $6)
+         ON CONFLICT (user_id, video_id) DO UPDATE 
+         SET status = 'active',
+             payment_id = EXCLUDED.payment_id,
+             customer_email = COALESCE(NULLIF(EXCLUDED.customer_email, ''), video_entitlements.customer_email),
+             customer_phone = COALESCE(NULLIF(EXCLUDED.customer_phone, ''), video_entitlements.customer_phone),
+             purchased_at = CURRENT_TIMESTAMP`,
+        [effectiveUserId, vid, razorpay_payment_id, VIDEO_AMOUNT_PAISE, normalizedEmail || null, normalizedPhone || null]
+      );
+    } catch (_) {}
   } else {
     // SQLite fallback with UPSERT
     const existing = await query.get(
@@ -397,6 +452,21 @@ async function verifyAndCreateEntitlement(params) {
         [effectiveUserId, vid]
       );
     }
+
+    try {
+      await query.run(
+        `INSERT INTO video_entitlements 
+          (user_id, video_id, payment_id, amount, status, purchased_at, customer_email, customer_phone)
+         VALUES (?, ?, ?, ?, 'active', CURRENT_TIMESTAMP, ?, ?)
+         ON CONFLICT(user_id, video_id) DO UPDATE 
+         SET status = 'active',
+             payment_id = excluded.payment_id,
+             customer_email = COALESCE(NULLIF(excluded.customer_email, ''), video_entitlements.customer_email),
+             customer_phone = COALESCE(NULLIF(excluded.customer_phone, ''), video_entitlements.customer_phone),
+             purchased_at = CURRENT_TIMESTAMP`,
+        [effectiveUserId, vid, razorpay_payment_id, VIDEO_AMOUNT_PAISE, normalizedEmail || null, normalizedPhone || null]
+      );
+    } catch (_) {}
   }
 
   // Also if email is provided, ensure any other entitlement records for this email are linked

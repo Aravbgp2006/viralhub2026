@@ -399,6 +399,41 @@ async function runSuite() {
     assert('Admin entitlements API returns 200', adminEntitlementsRes.statusCode === 200);
     assert('Admin entitlements summary contains total', adminEntitlementsRes.json.summary?.total >= 2);
 
+    // ----------------------------------------------------------------------
+    // TEST 11: Expired Entitlement Verification
+    // ----------------------------------------------------------------------
+    console.log('\n--- TEST 11: Expired Entitlement Verification ---');
+    const expiredUserId = `user_exp_${Date.now()}`;
+    const { createUserToken } = require('../services/entitlement');
+    const expiredToken = createUserToken({ user_id: expiredUserId });
+    const expiredCookieHeader = `vh_user_token=${expiredToken}`;
+
+    // Insert entitlement with expires_at in the past (48 hours ago, immune to cloud clock drift)
+    const pastDate = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    await query.run(
+      `INSERT INTO video_entitlements (user_id, video_id, payment_id, status, expires_at)
+       VALUES ($1, $2, $3, 'active', $4)
+       ON CONFLICT (user_id, video_id) DO UPDATE SET status = 'active', expires_at = $4`,
+      [expiredUserId, vid41, 'pay_expired_test', pastDate]
+    );
+
+    const expiredVidRes = await request('GET', `/api/videos/${vid41}`, { 'Cookie': expiredCookieHeader });
+    assert(`Expired entitlement: Video ${vid41} is LOCKED (is_locked: true)`, expiredVidRes.json.video.is_locked === true);
+    assert(`Expired entitlement: video_url is null`, expiredVidRes.json.video.video_url === null);
+
+    const expiredStreamRes = await request('GET', `/api/videos/${vid41}/stream`, { 'Cookie': expiredCookieHeader });
+    assert('Expired entitlement stream request returns 403 Forbidden', expiredStreamRes.statusCode === 403);
+
+    // Now update expires_at to the future
+    const futureDate = new Date(Date.now() + 86400 * 1000).toISOString();
+    await query.run(
+      `UPDATE video_entitlements SET expires_at = $1 WHERE user_id = $2 AND video_id = $3`,
+      [futureDate, expiredUserId, vid41]
+    );
+
+    const renewedVidRes = await request('GET', `/api/videos/${vid41}`, { 'Cookie': expiredCookieHeader });
+    assert(`Renewed/Active future entitlement: Video ${vid41} is UNLOCKED (is_locked: false)`, renewedVidRes.json.video.is_locked === false);
+
     console.log('\n======================================================================');
     console.log(`TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
     console.log('======================================================================\n');
