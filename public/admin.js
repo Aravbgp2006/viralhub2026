@@ -53,28 +53,36 @@
   const btnSubmitEditText = document.getElementById('btnSubmitEditText');
 
   let isBlobEnabled = false;
+  let isProductionEnv = false;
 
   async function checkBlobStatus() {
     try {
       const res = await fetch('/api/blob/status');
       if (res.ok) {
         const data = await res.json();
-        isBlobEnabled = Boolean(data.enabled && window.VercelBlob && typeof window.VercelBlob.upload === 'function');
+        const vercelBlobLib = (typeof window !== 'undefined' && window.VercelBlob) || (typeof VercelBlob !== 'undefined' ? VercelBlob : null);
+        if (typeof window !== 'undefined' && !window.VercelBlob && vercelBlobLib) {
+          window.VercelBlob = vercelBlobLib;
+        }
+        isBlobEnabled = Boolean(data.enabled && vercelBlobLib && typeof vercelBlobLib.upload === 'function');
+        isProductionEnv = Boolean(data.isProduction || data.isServerless || (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'));
       }
     } catch (e) {
       isBlobEnabled = false;
     }
+    return isBlobEnabled;
   }
 
   async function uploadDirectToBlob(file, prefix, onProgress) {
-    if (!window.VercelBlob || typeof window.VercelBlob.upload !== 'function') {
+    const vercelBlobLib = (typeof window !== 'undefined' && window.VercelBlob) || (typeof VercelBlob !== 'undefined' ? VercelBlob : null);
+    if (!vercelBlobLib || typeof vercelBlobLib.upload !== 'function') {
       throw new Error('Vercel Blob client library is not loaded');
     }
     const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const pathname = `${prefix}/${Date.now()}-${cleanName}`;
     const isLarge = file.size > 5 * 1024 * 1024; // >5MB use multipart
 
-    return await window.VercelBlob.upload(pathname, file, {
+    return await vercelBlobLib.upload(pathname, file, {
       access: 'public',
       handleUploadUrl: '/api/blob/upload',
       multipart: isLarge ? true : undefined,
@@ -512,6 +520,9 @@
       return;
     }
 
+    // Ensure latest Blob status before starting upload
+    await checkBlobStatus();
+
     // Lock UI and show progress
     isUploading = true;
     btnSubmitAdd.disabled = true;
@@ -526,11 +537,11 @@
       uploadProgressLabel.textContent = 'Starting upload...';
     }
 
-    // Check if Vercel Blob client upload is enabled
+    // Direct Vercel Blob client upload flow
     if (isBlobEnabled) {
       try {
-        // 1. Direct client upload for thumbnail
-        uploadProgressLabel.textContent = 'Uploading thumbnail... 0%';
+        // 1. Direct client upload for thumbnail to Vercel Blob
+        uploadProgressLabel.textContent = 'Uploading thumbnail to Vercel Blob... 0%';
         if (btnSubmitText) btnSubmitText.textContent = 'Uploading thumbnail... 0%';
 
         const thumbBlob = await uploadDirectToBlob(thumbFile, 'thumbnails', (pct) => {
@@ -540,10 +551,10 @@
           if (btnSubmitText) btnSubmitText.textContent = `Uploading thumbnail... ${pct}%`;
         });
 
-        // 2. Direct client multipart upload for video
+        // 2. Direct client upload for video to Vercel Blob
         uploadProgressBar.style.width = '0%';
         uploadProgressPercent.textContent = '0%';
-        uploadProgressLabel.textContent = 'Uploading video... 0%';
+        uploadProgressLabel.textContent = 'Uploading video to Vercel Blob... 0%';
         if (btnSubmitText) btnSubmitText.textContent = 'Uploading video... 0%';
 
         const videoBlob = await uploadDirectToBlob(videoFile, 'videos', (pct) => {
@@ -553,7 +564,7 @@
           if (btnSubmitText) btnSubmitText.textContent = `Uploading video... ${pct}%`;
         });
 
-        // 3. Save metadata to Neon database
+        // 3. Save metadata and Blob URLs to Neon PostgreSQL database
         uploadProgressLabel.textContent = 'Saving video record to database...';
         if (btnSubmitText) btnSubmitText.textContent = 'Publishing...';
 
@@ -591,7 +602,14 @@
       return;
     }
 
-    // Fallback: Local multipart upload (for offline development without Blob token)
+    // Never write to local filesystem when running in production
+    if (isProductionEnv) {
+      resetSubmitButton();
+      showAddError('Vercel Blob storage is not configured. Please ensure BLOB_READ_WRITE_TOKEN is set in your Vercel project environment variables.');
+      return;
+    }
+
+    // Fallback: Local multipart upload (ONLY for local offline development without Blob token)
     const formData = new FormData();
     formData.append('title', title);
     formData.append('description', description);
@@ -771,6 +789,9 @@
       }
     }
 
+    // Refresh Blob status right before edit
+    await checkBlobStatus();
+
     btnSubmitEdit.disabled = true;
     if (btnSubmitEditText) btnSubmitEditText.textContent = 'Saving...';
 
@@ -858,20 +879,47 @@
       return;
     }
 
-    // Standard / Local Fallback via FormData or JSON
-    const formData = new FormData();
-    formData.append('title', title);
-    formData.append('description', description);
-    formData.append('category', category);
-    formData.append('views', viewsVal);
-    formData.append('published', published);
-    if (newThumb) formData.append('thumbnail', newThumb);
-    if (newVideo) formData.append('video', newVideo);
+    // In production, if files were selected but Blob is not enabled
+    if (isProductionEnv && (newThumb || newVideo)) {
+      btnSubmitEdit.disabled = false;
+      if (btnSubmitEditText) btnSubmitEditText.textContent = 'Save Changes';
+      editErrorBanner.textContent = 'Vercel Blob storage is not configured. Please ensure BLOB_READ_WRITE_TOKEN is set in your Vercel project environment variables.';
+      editErrorBanner.style.display = 'block';
+      return;
+    }
+
+    // If only editing text metadata without replacement files, send JSON directly
+    const isJsonOnly = !newThumb && !newVideo;
+    let reqBody;
+    let reqHeaders = {};
+
+    if (isJsonOnly) {
+      reqHeaders['Content-Type'] = 'application/json';
+      reqBody = JSON.stringify({
+        title,
+        description,
+        category,
+        views: viewsVal,
+        published
+      });
+    } else {
+      // Local fallback multipart FormData
+      const formData = new FormData();
+      formData.append('title', title);
+      formData.append('description', description);
+      formData.append('category', category);
+      formData.append('views', viewsVal);
+      formData.append('published', published);
+      if (newThumb) formData.append('thumbnail', newThumb);
+      if (newVideo) formData.append('video', newVideo);
+      reqBody = formData;
+    }
 
     try {
       const res = await fetch(`/api/videos/${id}`, {
         method: 'PUT',
-        body: formData
+        headers: reqHeaders,
+        body: reqBody
       });
 
       const data = await res.json();

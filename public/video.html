@@ -260,6 +260,43 @@
         return;
       }
 
+      // Check for redirect query parameters from Razorpay Payment Link
+      const urlParams = new URLSearchParams(window.location.search);
+      const paymentId = urlParams.get('razorpay_payment_id');
+      const paymentLinkId = urlParams.get('razorpay_payment_link_id');
+      const paymentLinkRef = urlParams.get('razorpay_payment_link_reference_id');
+      const paymentLinkStatus = urlParams.get('razorpay_payment_link_status');
+      const signature = urlParams.get('razorpay_signature');
+
+      if (paymentId) {
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        if (loadingIndicator) {
+          loadingIndicator.style.display = 'block';
+          const p = loadingIndicator.querySelector('p');
+          if (p) p.textContent = 'Verifying payment with Razorpay...';
+        }
+
+        try {
+          const vRes = await fetch('/api/subscription/verify-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_payment_id: paymentId,
+              razorpay_payment_link_id: paymentLinkId,
+              razorpay_payment_link_reference_id: paymentLinkRef,
+              razorpay_payment_link_status: paymentLinkStatus,
+              razorpay_signature: signature
+            })
+          });
+          const vData = await vRes.json();
+          if (vRes.ok && vData.success) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } catch (vErr) {
+          console.error('Payment redirect verification error:', vErr);
+        }
+      }
+
       try {
         const res = await fetch(`/api/videos/${currentVideoId}`);
         if (!res.ok) {
@@ -364,11 +401,42 @@
       setTimeout(() => toast.classList.remove('show'), 3000);
     }
 
+    // Auto-check unlock when user refocuses the tab (e.g. after paying in another tab/window)
+    window.addEventListener('focus', async () => {
+      const lockOverlay = document.getElementById('videoLockOverlay');
+      if (lockOverlay && lockOverlay.style.display !== 'none' && currentVideoId) {
+        try {
+          const sRes = await fetch('/api/subscription/status');
+          if (sRes.ok) {
+            const sData = await sRes.json();
+            if (sData.subscribed) {
+              unlockVideoDirectly();
+            }
+          }
+        } catch (_) {}
+      }
+    });
+
     // Modal helpers
     const checkoutModal = document.getElementById('checkoutModal');
     const restoreModal = document.getElementById('restoreModal');
 
-    document.getElementById('btnUnlockVideo').addEventListener('click', () => {
+    document.getElementById('btnUnlockVideo').addEventListener('click', async () => {
+      // If Razorpay Payment Link URL is configured, open it directly
+      try {
+        const configRes = await fetch('/api/subscription/config');
+        if (configRes.ok) {
+          const config = await configRes.json();
+          if (config.payment_link_url) {
+            window.location.href = config.payment_link_url;
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Error fetching subscription config:', err);
+      }
+
+      // Fallback: Open in-page subscription checkout modal
       document.getElementById('checkoutErrorBanner').style.display = 'none';
       checkoutModal.style.display = 'flex';
     });

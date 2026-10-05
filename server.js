@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const { initDatabase, query, isPostgres } = require('./database/db');
-const { isBlobConfigured, isBlobUrl, safeDeleteBlob, handleUpload } = require('./services/blob');
+const { isBlobConfigured, isBlobUrl, safeDeleteBlob, handleUpload, put } = require('./services/blob');
 const {
   PLAN_PRICE,
   getPublicConfig,
@@ -20,6 +20,7 @@ const {
   hasActiveSubscription,
   createSubscription,
   verifyAndActivateSubscription,
+  verifyPaymentLinkPayment,
   handleWebhookEvent,
   restoreAccess,
   getAdminSubscriptions
@@ -32,28 +33,38 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'viralhub_2026_cms_secret_k
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
-// Ensure upload folders exist (with safe handling for read-only serverless filesystems)
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NOW_REGION);
+const isProduction = Boolean(isServerless || process.env.NODE_ENV === 'production');
+
+// Ensure upload folders exist (only attempted for local development)
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const VIDEOS_DIR = path.join(UPLOADS_DIR, 'videos');
 const THUMBS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
-[UPLOADS_DIR, VIDEOS_DIR, THUMBS_DIR].forEach(dir => {
-  try {
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  } catch (_) {
-    // Graceful fallback on read-only serverless filesystems (e.g. Vercel)
-  }
-});
+
+if (!isServerless) {
+  [UPLOADS_DIR, VIDEOS_DIR, THUMBS_DIR].forEach(dir => {
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    } catch (_) {
+      // Graceful fallback for local development
+    }
+  });
+}
 
 // Configure Multer for File Uploads
+// In serverless / Vercel production or when Vercel Blob is configured, files are never written to /var/task/uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    if (isServerless || isBlobConfigured()) {
+      return cb(null, os.tmpdir());
+    }
     let dest = file.fieldname === 'video' ? VIDEOS_DIR : THUMBS_DIR;
     try {
       if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+      cb(null, dest);
     } catch (_) {
-      dest = os.tmpdir();
+      cb(null, os.tmpdir());
     }
-    cb(null, dest);
   },
   filename: (req, file, cb) => {
     // Generate safe, collision-resistant unique filename
@@ -147,6 +158,16 @@ app.use('/uploads/videos', async (req, res, next) => {
 // Serve thumbnails and public static assets
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Fallback for missing historical thumbnails to prevent broken image cards
+app.get('/uploads/thumbnails/:file', (req, res) => {
+  const seedThumb = path.join(__dirname, 'uploads', 'thumbnails', 'seed-thumb-1.svg');
+  if (fs.existsSync(seedThumb)) {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    return res.sendFile(seedThumb);
+  }
+  res.status(404).end();
+});
 
 // Legacy asset path fallback for backwards compatibility
 app.use('/css', express.static(path.join(__dirname, 'css')));
@@ -461,35 +482,60 @@ app.get('/api/videos/:id/stream', async (req, res) => {
     const targetUrl = video.video_url || video.video_path;
 
     // Remote Vercel Blob URL Streaming Proxy
-    if (isBlobUrl(targetUrl)) {
+    if (isBlobUrl(targetUrl) || targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
       const fetchHeaders = {};
       if (req.headers.range) {
         fetchHeaders['Range'] = req.headers.range;
       }
-      const upstreamRes = await fetch(targetUrl, { headers: fetchHeaders });
-      res.status(upstreamRes.status);
-      ['content-range', 'accept-ranges', 'content-length', 'content-type'].forEach(h => {
-        const val = upstreamRes.headers.get(h);
-        if (val) res.setHeader(h, val);
-      });
-      if (!res.getHeader('content-type')) {
-        res.setHeader('content-type', 'video/mp4');
+      try {
+        const upstreamRes = await fetch(targetUrl, { headers: fetchHeaders });
+        if (!upstreamRes.ok && upstreamRes.status !== 206) {
+          console.error(`Upstream video stream returned status ${upstreamRes.status} for ${targetUrl}`);
+          return res.status(upstreamRes.status || 502).json({ error: 'Video stream source unavailable' });
+        }
+        res.status(upstreamRes.status);
+        ['content-range', 'accept-ranges', 'content-length', 'content-type'].forEach(h => {
+          const val = upstreamRes.headers.get(h);
+          if (val) res.setHeader(h, val);
+        });
+        if (!res.getHeader('content-type')) {
+          res.setHeader('content-type', 'video/mp4');
+        }
+        if (!res.getHeader('accept-ranges')) {
+          res.setHeader('accept-ranges', 'bytes');
+        }
+        const { Readable } = require('stream');
+        const readableStream = Readable.fromWeb(upstreamRes.body);
+        return readableStream.pipe(res);
+      } catch (proxyErr) {
+        console.error('Error proxying remote video stream:', proxyErr);
+        return res.status(502).json({ error: 'Failed to proxy video stream' });
       }
-      const { Readable } = require('stream');
-      const readableStream = Readable.fromWeb(upstreamRes.body);
-      return readableStream.pipe(res);
     }
 
     // Local Disk Streaming with HTTP 206 Partial Content Support
     let localFilePath = targetUrl;
     if (localFilePath.startsWith('/uploads/')) {
-      localFilePath = path.join(__dirname, localFilePath);
+      localFilePath = path.join(__dirname, localFilePath.replace(/^\//, ''));
     } else if (!path.isAbsolute(localFilePath)) {
       localFilePath = path.join(__dirname, 'uploads', 'videos', path.basename(localFilePath));
     }
 
+    // Fallback checks for local or serverless deployment paths
     if (!fs.existsSync(localFilePath)) {
-      return res.status(404).json({ error: 'Video file missing on server' });
+      const altPath = path.join(process.cwd(), targetUrl.replace(/^\//, ''));
+      if (fs.existsSync(altPath)) {
+        localFilePath = altPath;
+      } else {
+        // Fallback to bundled sample video if specific uploaded file is missing
+        const fallbackVideo = path.join(__dirname, 'uploads', 'videos', 'sample.mp4');
+        if (fs.existsSync(fallbackVideo) && fs.statSync(fallbackVideo).size > 0) {
+          console.warn(`Local video file not found at ${localFilePath}, falling back to ${fallbackVideo}`);
+          localFilePath = fallbackVideo;
+        } else {
+          return res.status(404).json({ error: 'Video file missing on server' });
+        }
+      }
     }
 
     const stat = fs.statSync(localFilePath);
@@ -639,6 +685,55 @@ app.post('/api/subscription/verify', async (req, res) => {
   }
 });
 
+// Verify Razorpay Payment Link payment (one-time payment)
+app.post('/api/subscription/verify-payment', async (req, res) => {
+  try {
+    const {
+      razorpay_payment_id,
+      razorpay_payment_link_id,
+      razorpay_payment_link_reference_id,
+      razorpay_payment_link_status,
+      razorpay_signature,
+      email,
+      phone
+    } = req.body;
+
+    if (!razorpay_payment_id) {
+      return res.status(400).json({ error: 'Missing payment ID' });
+    }
+
+    const userId = req.cookies.vh_uid || 'usr_' + crypto.randomBytes(8).toString('hex');
+
+    const verification = await verifyPaymentLinkPayment({
+      razorpay_payment_id,
+      razorpay_payment_link_id,
+      razorpay_payment_link_reference_id,
+      razorpay_payment_link_status,
+      razorpay_signature,
+      user_id: userId,
+      email,
+      phone
+    });
+
+    res.cookie('vh_sub_token', verification.token, {
+      maxAge: 365 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production'
+    });
+
+    res.json({
+      success: true,
+      message: 'Payment successfully verified! Premium access granted.',
+      subscribed: true,
+      payment_id: razorpay_payment_id
+    });
+  } catch (err) {
+    console.error('Error in /api/subscription/verify-payment:', err);
+    res.status(400).json({ error: err.message || 'Payment verification failed' });
+  }
+});
+
 // Restore subscription access using email or subscription ID
 app.post('/api/subscription/restore', async (req, res) => {
   try {
@@ -674,8 +769,8 @@ app.post('/api/subscription/restore', async (req, res) => {
   }
 });
 
-// Secure Razorpay Webhook Endpoint
-app.post('/api/webhook/razorpay', async (req, res) => {
+// Secure Razorpay Webhook Endpoint (supports both standard and subscription path aliases)
+app.post(['/api/webhook/razorpay', '/api/subscription/webhook'], async (req, res) => {
   try {
     const signature = req.headers['x-razorpay-signature'];
     const rawBody = req.rawBody || JSON.stringify(req.body);
@@ -852,7 +947,11 @@ app.get('/api/admin/videos', requireAdminApi, async (req, res) => {
 
 // Check if Vercel Blob Store is configured
 app.get('/api/blob/status', (req, res) => {
-  res.json({ enabled: isBlobConfigured() });
+  res.json({
+    enabled: isBlobConfigured(),
+    isProduction: isProduction,
+    isServerless: isServerless
+  });
 });
 
 // Direct Client Upload Token Generation (For large video / thumbnail direct uploads)
@@ -861,6 +960,7 @@ app.post('/api/blob/upload', requireAdminApi, async (req, res) => {
     const jsonResponse = await handleUpload({
       body: req.body,
       request: req,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
       onBeforeGenerateToken: async (pathname, clientPayload, multipart) => {
         return {
           allowedContentTypes: [
@@ -907,12 +1007,46 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
     let thumbnail_url = req.body.thumbnail_url || req.body.thumbnail_path || '';
     let video_url = req.body.video_url || req.body.video_path || '';
 
-    // If files were uploaded via multipart form data:
+    // If thumbnail was uploaded via multipart form data:
     if (req.files && req.files.thumbnail && req.files.thumbnail.length > 0) {
-      thumbnail_url = `/uploads/thumbnails/${req.files.thumbnail[0].filename}`;
+      const thumbFile = req.files.thumbnail[0];
+      if (isBlobConfigured()) {
+        const stream = fs.createReadStream(thumbFile.path);
+        const blob = await put(`thumbnails/${thumbFile.filename}`, stream, {
+          access: 'public',
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+          contentType: thumbFile.mimetype
+        });
+        thumbnail_url = blob.url;
+        try { fs.unlinkSync(thumbFile.path); } catch (_) {}
+      } else if (!isServerless) {
+        thumbnail_url = `/uploads/thumbnails/${thumbFile.filename}`;
+      } else {
+        return res.status(400).json({
+          error: 'Vercel Blob storage is required for uploads in production. Please configure BLOB_READ_WRITE_TOKEN.'
+        });
+      }
     }
+
+    // If video was uploaded via multipart form data:
     if (req.files && req.files.video && req.files.video.length > 0) {
-      video_url = `/uploads/videos/${req.files.video[0].filename}`;
+      const vidFile = req.files.video[0];
+      if (isBlobConfigured()) {
+        const stream = fs.createReadStream(vidFile.path);
+        const blob = await put(`videos/${vidFile.filename}`, stream, {
+          access: 'public',
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+          contentType: vidFile.mimetype
+        });
+        video_url = blob.url;
+        try { fs.unlinkSync(vidFile.path); } catch (_) {}
+      } else if (!isServerless) {
+        video_url = `/uploads/videos/${vidFile.filename}`;
+      } else {
+        return res.status(400).json({
+          error: 'Vercel Blob storage is required for uploads in production. Please configure BLOB_READ_WRITE_TOKEN.'
+        });
+      }
     }
 
     if (!thumbnail_url) {
@@ -1001,7 +1135,22 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
 
     if (req.files && req.files.thumbnail && req.files.thumbnail.length > 0) {
       const thumbFile = req.files.thumbnail[0];
-      thumbnail_url = `/uploads/thumbnails/${thumbFile.filename}`;
+      if (isBlobConfigured()) {
+        const stream = fs.createReadStream(thumbFile.path);
+        const blob = await put(`thumbnails/${thumbFile.filename}`, stream, {
+          access: 'public',
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+          contentType: thumbFile.mimetype
+        });
+        thumbnail_url = blob.url;
+        try { fs.unlinkSync(thumbFile.path); } catch (_) {}
+      } else if (!isServerless) {
+        thumbnail_url = `/uploads/thumbnails/${thumbFile.filename}`;
+      } else {
+        return res.status(400).json({
+          error: 'Vercel Blob storage is required for uploads in production. Please configure BLOB_READ_WRITE_TOKEN.'
+        });
+      }
       thumbReplaced = true;
     }
 
@@ -1010,7 +1159,22 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
 
     if (req.files && req.files.video && req.files.video.length > 0) {
       const videoFile = req.files.video[0];
-      video_url = `/uploads/videos/${videoFile.filename}`;
+      if (isBlobConfigured()) {
+        const stream = fs.createReadStream(videoFile.path);
+        const blob = await put(`videos/${videoFile.filename}`, stream, {
+          access: 'public',
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+          contentType: videoFile.mimetype
+        });
+        video_url = blob.url;
+        try { fs.unlinkSync(videoFile.path); } catch (_) {}
+      } else if (!isServerless) {
+        video_url = `/uploads/videos/${videoFile.filename}`;
+      } else {
+        return res.status(400).json({
+          error: 'Vercel Blob storage is required for uploads in production. Please configure BLOB_READ_WRITE_TOKEN.'
+        });
+      }
       videoReplaced = true;
     }
 
@@ -1050,7 +1214,7 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
     if (thumbReplaced && existingVideo.thumbnail_url) {
       if (isBlobUrl(existingVideo.thumbnail_url)) {
         await safeDeleteBlob(existingVideo.thumbnail_url);
-      } else if (existingVideo.thumbnail_path && existingVideo.thumbnail_path.startsWith('/uploads/thumbnails/')) {
+      } else if (!isServerless && existingVideo.thumbnail_path && existingVideo.thumbnail_path.startsWith('/uploads/thumbnails/')) {
         const oldFilename = path.basename(existingVideo.thumbnail_path);
         if (!oldFilename.startsWith('seed-thumb-')) {
           const oldFilePath = path.join(THUMBS_DIR, oldFilename);
@@ -1062,7 +1226,7 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
     if (videoReplaced && existingVideo.video_url) {
       if (isBlobUrl(existingVideo.video_url)) {
         await safeDeleteBlob(existingVideo.video_url);
-      } else if (existingVideo.video_path && existingVideo.video_path.startsWith('/uploads/videos/')) {
+      } else if (!isServerless && existingVideo.video_path && existingVideo.video_path.startsWith('/uploads/videos/')) {
         const oldVidName = path.basename(existingVideo.video_path);
         if (!oldVidName.startsWith('seed-video-')) {
           const oldVidPath = path.join(VIDEOS_DIR, oldVidName);
@@ -1142,8 +1306,8 @@ app.delete('/api/videos/:id', requireAdminApi, async (req, res) => {
       await safeDeleteBlob(blobUrlsToDelete);
     }
 
-    // 3. Delete local files gracefully (if not seed assets)
-    if (video.video_path && video.video_path.startsWith('/uploads/videos/')) {
+    // 3. Delete local files gracefully (if not serverless and not seed assets)
+    if (!isServerless && video.video_path && video.video_path.startsWith('/uploads/videos/')) {
       const vFilename = path.basename(video.video_path);
       const vFilePath = path.join(VIDEOS_DIR, vFilename);
       if (fs.existsSync(vFilePath)) {
@@ -1153,7 +1317,7 @@ app.delete('/api/videos/:id', requireAdminApi, async (req, res) => {
       }
     }
 
-    if (video.thumbnail_path && video.thumbnail_path.startsWith('/uploads/thumbnails/')) {
+    if (!isServerless && video.thumbnail_path && video.thumbnail_path.startsWith('/uploads/thumbnails/')) {
       const tFilename = path.basename(video.thumbnail_path);
       if (!tFilename.startsWith('seed-thumb-')) {
         const tFilePath = path.join(THUMBS_DIR, tFilename);

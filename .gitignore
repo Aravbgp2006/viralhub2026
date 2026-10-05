@@ -7,9 +7,12 @@ node_modules/
 Thumbs.db
 uploads/videos/*
 !uploads/videos/.gitkeep
+!uploads/videos/sample.mp4
+!uploads/videos/video_1791066428337_1a564f40dc90.mp4
 uploads/thumbnails/*
 !uploads/thumbnails/.gitkeep
 !uploads/thumbnails/seed-thumb-*.svg
+!uploads/thumbnails/thumb_1791066428335_b01715960366.jpg
 database/*.db
 database/*.db-journal
 database/*.db-wal

@@ -15,6 +15,7 @@ const RAZORPAY_KEY_ID = (process.env.RAZORPAY_KEY_ID || '').trim();
 const RAZORPAY_KEY_SECRET = (process.env.RAZORPAY_KEY_SECRET || '').trim();
 const RAZORPAY_PLAN_ID = (process.env.RAZORPAY_PLAN_ID || '').trim();
 const RAZORPAY_WEBHOOK_SECRET = (process.env.RAZORPAY_WEBHOOK_SECRET || '').trim();
+const RAZORPAY_PAYMENT_LINK_URL = (process.env.RAZORPAY_PAYMENT_LINK_URL || '').trim();
 
 const PLAN_PRICE = '₹9/month';
 const PLAN_AMOUNT = 900; // in paise: 900 paise = 9 INR
@@ -35,7 +36,7 @@ if (RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET) {
  * Checks whether real Razorpay credentials are fully configured
  */
 function isRazorpayConfigured() {
-  return Boolean(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET && RAZORPAY_PLAN_ID);
+  return Boolean(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET && (RAZORPAY_PLAN_ID || RAZORPAY_PAYMENT_LINK_URL));
 }
 
 /**
@@ -47,6 +48,8 @@ function getPublicConfig() {
     plan_id: RAZORPAY_PLAN_ID || 'plan_mock_viralhub_9',
     plan_price: PLAN_PRICE,
     is_configured: isRazorpayConfigured(),
+    payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null,
+    has_payment_link: Boolean(RAZORPAY_PAYMENT_LINK_URL),
     test_mode: !RAZORPAY_KEY_ID || RAZORPAY_KEY_ID.startsWith('rzp_test_') || RAZORPAY_KEY_ID.includes('mock')
   };
 }
@@ -297,6 +300,132 @@ async function verifyAndActivateSubscription({
 }
 
 /**
+ * Verifies a Razorpay Payment Link payment server-side and activates premium access
+ */
+async function verifyPaymentLinkPayment({
+  razorpay_payment_id,
+  razorpay_payment_link_id,
+  razorpay_payment_link_reference_id,
+  razorpay_payment_link_status,
+  razorpay_signature,
+  user_id,
+  email,
+  phone
+}) {
+  if (!razorpay_payment_id) {
+    throw new Error('Payment ID is required for verification');
+  }
+
+  const isRealRazorpay = Boolean(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET && razorpayInstance);
+  let verifiedEmail = (email || '').trim().toLowerCase();
+  let verifiedPhone = (phone || '').trim();
+
+  if (isRealRazorpay) {
+    // 1. Signature verification if signature was passed back by Razorpay redirect
+    if (razorpay_signature && razorpay_payment_link_id) {
+      // Signature for payment link: HMAC-SHA256 of payment_link_id + "|" + payment_link_reference_id + "|" + payment_link_status + "|" + payment_id
+      const payload = `${razorpay_payment_link_id}|${razorpay_payment_link_reference_id || ''}|${razorpay_payment_link_status || ''}|${razorpay_payment_id}`;
+      const expectedSignature = crypto
+        .createHmac('sha256', RAZORPAY_KEY_SECRET)
+        .update(payload)
+        .digest('hex');
+
+      const isValid = crypto.timingSafeEqual(
+        Buffer.from(expectedSignature),
+        Buffer.from(razorpay_signature)
+      );
+
+      if (!isValid) {
+        throw new Error('Invalid Razorpay payment link signature');
+      }
+    }
+
+    // 2. Direct server-side API verification with Razorpay
+    try {
+      const payment = await razorpayInstance.payments.fetch(razorpay_payment_id);
+      if (!payment || payment.status !== 'captured') {
+        throw new Error(`Payment is not captured. Current status: ${payment?.status || 'unknown'}`);
+      }
+      if (payment.amount < PLAN_AMOUNT) {
+        throw new Error(`Payment amount ${payment.amount} is less than required ₹9`);
+      }
+      if (payment.email && !verifiedEmail) {
+        verifiedEmail = payment.email.trim().toLowerCase();
+      }
+      if (payment.contact && !verifiedPhone) {
+        verifiedPhone = payment.contact.trim();
+      }
+    } catch (apiErr) {
+      if (!razorpay_signature) {
+        throw new Error(`Server-side payment verification failed: ${apiErr.message}`);
+      }
+    }
+  }
+
+  // Calculate 30-day access period
+  const periodStartSql = isPostgres ? 'CURRENT_TIMESTAMP' : "datetime('now')";
+  const periodEndSql = isPostgres 
+    ? "CURRENT_TIMESTAMP + INTERVAL '30 days'" 
+    : "datetime('now', '+30 days')";
+
+  const subIdentifier = razorpay_payment_link_id || `plink_${razorpay_payment_id}`;
+
+  const existing = await query.get(
+    'SELECT * FROM subscriptions WHERE razorpay_subscription_id = $1 OR razorpay_payment_id = $2',
+    [subIdentifier, razorpay_payment_id]
+  );
+
+  if (existing) {
+    await query.run(
+      `UPDATE subscriptions 
+       SET status = 'active',
+           razorpay_payment_id = $1,
+           customer_email = COALESCE(NULLIF($2, ''), customer_email),
+           customer_phone = COALESCE(NULLIF($3, ''), customer_phone),
+           user_id = COALESCE(NULLIF($4, ''), user_id),
+           current_period_start = ${periodStartSql},
+           current_period_end = ${periodEndSql},
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5`,
+      [
+        razorpay_payment_id,
+        verifiedEmail,
+        verifiedPhone,
+        user_id || 'anonymous',
+        existing.id
+      ]
+    );
+  } else {
+    await query.run(
+      `INSERT INTO subscriptions 
+        (user_id, customer_email, customer_phone, razorpay_subscription_id, razorpay_payment_id, plan_id, status, current_period_start, current_period_end)
+       VALUES ($1, $2, $3, $4, $5, 'payment_link_9', 'active', ${periodStartSql}, ${periodEndSql})`,
+      [
+        user_id || 'anonymous',
+        verifiedEmail,
+        verifiedPhone,
+        subIdentifier,
+        razorpay_payment_id
+      ]
+    );
+  }
+
+  const token = createSubscriberToken({
+    user_id: user_id || existing?.user_id || 'anonymous',
+    email: verifiedEmail || existing?.customer_email,
+    sub_id: subIdentifier
+  });
+
+  return {
+    success: true,
+    subscribed: true,
+    payment_id: razorpay_payment_id,
+    token,
+    email: verifiedEmail
+  };
+}
+
+/**
  * Handles incoming Razorpay webhook events
  */
 async function handleWebhookEvent(rawBody, signature) {
@@ -325,6 +454,53 @@ async function handleWebhookEvent(rawBody, signature) {
 
   const subEntity = event.payload?.subscription?.entity;
   const paymentEntity = event.payload?.payment?.entity;
+  const paymentLinkEntity = event.payload?.payment_link?.entity;
+
+  // Handle Payment Link / One-Time Payment Webhook Events
+  if (eventName === 'payment_link.paid' || (eventName === 'payment.captured' && !subEntity?.id)) {
+    const plinkId = paymentLinkEntity?.id || event.payload?.payment_link_id || (paymentEntity?.id ? `plink_${paymentEntity.id}` : null);
+    const pId = paymentEntity?.id || event.payload?.payment_id || paymentLinkEntity?.payment_id;
+    const email = (paymentEntity?.email || paymentLinkEntity?.customer?.email || '').trim().toLowerCase();
+    const phone = (paymentEntity?.contact || paymentLinkEntity?.customer?.contact || '').trim();
+    const periodStartSql = isPostgres ? 'CURRENT_TIMESTAMP' : "datetime('now')";
+    const periodEndSql = isPostgres ? "CURRENT_TIMESTAMP + INTERVAL '30 days'" : "datetime('now', '+30 days')";
+
+    if (!plinkId && !pId) {
+      console.log('ℹ️ Payment link webhook event missing IDs, skipping.');
+      return { status: 'ignored', event: eventName };
+    }
+
+    const subKey = plinkId || `plink_${pId}`;
+    const existing = await query.get(
+      'SELECT id FROM subscriptions WHERE razorpay_subscription_id = $1 OR (razorpay_payment_id IS NOT NULL AND razorpay_payment_id = $2)',
+      [subKey, pId]
+    );
+
+    if (existing) {
+      await query.run(
+        `UPDATE subscriptions 
+         SET status = 'active',
+             razorpay_payment_id = COALESCE($1, razorpay_payment_id),
+             customer_email = COALESCE(NULLIF($2, ''), customer_email),
+             customer_phone = COALESCE(NULLIF($3, ''), customer_phone),
+             current_period_start = COALESCE(current_period_start, ${periodStartSql}),
+             current_period_end = ${periodEndSql},
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [pId, email, phone, existing.id]
+      );
+    } else {
+      await query.run(
+        `INSERT INTO subscriptions 
+          (user_id, customer_email, customer_phone, razorpay_subscription_id, razorpay_payment_id, plan_id, status, current_period_start, current_period_end)
+         VALUES ($1, $2, $3, $4, $5, 'payment_link_9', 'active', ${periodStartSql}, ${periodEndSql})`,
+        ['anonymous', email, phone, subKey, pId]
+      );
+    }
+
+    console.log(`✅ Payment link paid & verified via webhook: ${subKey} (Payment ID: ${pId})`);
+    return { status: 'processed', event: eventName, payment_id: pId };
+  }
 
   const subscriptionId = subEntity?.id || event.payload?.subscription_id;
 
@@ -485,6 +661,7 @@ module.exports = {
   hasActiveSubscription,
   createSubscription,
   verifyAndActivateSubscription,
+  verifyPaymentLinkPayment,
   handleWebhookEvent,
   restoreAccess,
   getAdminSubscriptions

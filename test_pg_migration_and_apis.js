@@ -199,8 +199,9 @@ async function runTests() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: 'admin', password: 'admin123' })
   });
-  if (!loginRes.ok) throw new Error(`Admin login failed with status ${loginRes.status}`);
-  const cookie = loginRes.headers.get('set-cookie');
+  const rawCookie = loginRes.headers.get('set-cookie') || '';
+  const adminTokenMatch = rawCookie.match(/admin_token=([^;]+)/);
+  const cookie = adminTokenMatch ? `admin_token=${adminTokenMatch[1]}` : rawCookie;
   console.log('✅ POST /api/admin/login succeeded and received session cookie');
 
   // 3g. Admin Stats

@@ -23,7 +23,7 @@ function isBlobConfigured() {
  */
 function isBlobUrl(url) {
   if (!url || typeof url !== 'string') return false;
-  return url.startsWith('https://') && url.includes('.blob.vercel-storage.com');
+  return url.startsWith('https://') && (url.includes('.blob.vercel-storage.com') || url.includes('.vercel-storage.com'));
 }
 
 /**
@@ -38,7 +38,9 @@ async function safeDeleteBlob(urls) {
   if (validBlobUrls.length === 0) return;
 
   try {
-    await del(validBlobUrls);
+    await del(validBlobUrls, {
+      token: process.env.BLOB_READ_WRITE_TOKEN
+    });
     console.log(`🗑️ Deleted ${validBlobUrls.length} object(s) from Vercel Blob`);
   } catch (err) {
     console.error('⚠️ Warning: Non-fatal error deleting from Vercel Blob:', err.message);
