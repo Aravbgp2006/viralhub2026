@@ -144,8 +144,9 @@ app.use((req, res, next) => {
 
 // Protect raw video uploads directory against direct unauthorized downloads
 app.use('/uploads/videos', async (req, res, next) => {
+  const isAdmin = resolveIsAdmin(req);
   const isSub = await resolveIsSubscribed(req);
-  if (!isSub) {
+  if (!isAdmin && !isSub) {
     return res.status(403).json({
       error: 'Active subscription required to access raw video files',
       locked: true,
@@ -173,15 +174,42 @@ app.get('/uploads/thumbnails/:file', (req, res) => {
 app.use('/css', express.static(path.join(__dirname, 'css')));
 app.use('/js', express.static(path.join(__dirname, 'js')));
 
-// Helper to determine if current requester has active subscriber access (or admin preview)
-async function resolveIsSubscribed(req) {
-  // 1. Authenticated Admin gets preview access
-  if (verifyAuthToken(req.cookies.admin_token)) {
-    return true;
+// Duration formatters
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined || !Number.isFinite(Number(seconds))) {
+    return null;
   }
+  const s = Math.max(0, Math.round(Number(seconds)));
+  const hrs = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
 
-  // 2. Verified subscriber session token cookie
-  const subToken = req.cookies.vh_sub_token;
+function parseDurationToSeconds(durationStr) {
+  if (typeof durationStr !== 'string') return null;
+  const parts = durationStr.trim().split(':').map(Number);
+  if (parts.some(p => isNaN(p) || p < 0)) return null;
+  if (parts.length === 2) {
+    return parts[0] * 60 + parts[1];
+  } else if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  return null;
+}
+
+// Helper to determine if requester is an authenticated administrator
+function resolveIsAdmin(req) {
+  return Boolean(req.cookies && verifyAuthToken(req.cookies.admin_token));
+}
+
+// Helper to determine if current requester has active subscriber access (strictly subscribers, not admin)
+async function resolveIsSubscribed(req) {
+  // 1. Verified subscriber session token cookie
+  const subToken = req.cookies?.vh_sub_token;
   if (subToken) {
     const payload = verifySubscriberToken(subToken);
     if (payload) {
@@ -190,8 +218,8 @@ async function resolveIsSubscribed(req) {
     }
   }
 
-  // 3. Fallback: visitor identifier cookie
-  const visitorId = req.cookies.vh_uid;
+  // 2. Fallback: visitor identifier cookie
+  const visitorId = req.cookies?.vh_uid;
   if (visitorId) {
     const active = await hasActiveSubscription(visitorId);
     if (active) return true;
@@ -287,6 +315,105 @@ app.get('/js/admin.js', (req, res) => {
   res.sendFile(getPublicPath('admin.js'));
 });
 
+// Secure Thumbnail Delivery Endpoint
+// Securely proxies private Vercel Blob thumbnails or local files belonging strictly to videos in the database.
+// Publicly accessible so thumbnails appear on homepage/sidebar without exposing private tokens.
+app.get('/api/videos/:id/thumbnail', async (req, res) => {
+  try {
+    const videoId = parseInt(req.params.id, 10);
+    if (isNaN(videoId)) {
+      return res.status(400).json({ error: 'Invalid video ID' });
+    }
+
+    const video = await query.get(
+      'SELECT id, thumbnail_url, thumbnail_path FROM videos WHERE id = $1',
+      [videoId]
+    );
+
+    if (!video) {
+      const seedThumb = path.join(__dirname, 'uploads', 'thumbnails', 'seed-thumb-1.svg');
+      if (fs.existsSync(seedThumb)) {
+        res.setHeader('Content-Type', 'image/svg+xml');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        return res.sendFile(seedThumb);
+      }
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    const targetThumb = video.thumbnail_url || video.thumbnail_path;
+    if (!targetThumb) {
+      const seedThumb = path.join(__dirname, 'uploads', 'thumbnails', 'seed-thumb-1.svg');
+      if (fs.existsSync(seedThumb)) {
+        res.setHeader('Content-Type', 'image/svg+xml');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        return res.sendFile(seedThumb);
+      }
+      return res.status(404).json({ error: 'Thumbnail not found' });
+    }
+
+    // 1. Remote Private Vercel Blob URL
+    if (isBlobUrl(targetThumb)) {
+      const fetchHeaders = {};
+      if (process.env.BLOB_READ_WRITE_TOKEN) {
+        fetchHeaders['Authorization'] = `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`;
+      }
+
+      const upstream = await fetch(targetThumb, { headers: fetchHeaders });
+      if (!upstream.ok) {
+        console.warn(`Upstream private blob returned ${upstream.status} for video ${videoId} thumbnail`);
+        const seedThumb = path.join(__dirname, 'uploads', 'thumbnails', 'seed-thumb-1.svg');
+        if (fs.existsSync(seedThumb)) {
+          res.setHeader('Content-Type', 'image/svg+xml');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          return res.sendFile(seedThumb);
+        }
+        return res.status(upstream.status).json({ error: 'Thumbnail unavailable' });
+      }
+
+      res.status(upstream.status);
+      ['content-type', 'etag', 'last-modified'].forEach(h => {
+        const val = upstream.headers.get(h);
+        if (val) res.setHeader(h, val);
+      });
+      if (!res.getHeader('content-type')) {
+        res.setHeader('content-type', 'image/jpeg');
+      }
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+
+      const arrayBuffer = await upstream.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      res.setHeader('Content-Length', buffer.length);
+      return res.send(buffer);
+    }
+
+    // 2. Local File fallback
+    let localPath = targetThumb;
+    if (localPath.startsWith('/uploads/')) {
+      localPath = path.join(__dirname, localPath.replace(/^\//, ''));
+    } else if (!path.isAbsolute(localPath)) {
+      localPath = path.join(__dirname, 'uploads', 'thumbnails', path.basename(localPath));
+    }
+
+    if (fs.existsSync(localPath)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      return res.sendFile(localPath);
+    }
+
+    // Fallback to seed thumbnail
+    const seedThumb = path.join(__dirname, 'uploads', 'thumbnails', 'seed-thumb-1.svg');
+    if (fs.existsSync(seedThumb)) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.sendFile(seedThumb);
+    }
+
+    return res.status(404).json({ error: 'Thumbnail file missing' });
+  } catch (err) {
+    console.error(`Error delivering thumbnail for video ${req.params.id}:`, err.message);
+    res.status(502).json({ error: 'Failed to deliver thumbnail' });
+  }
+});
+
 // Public API: Fetch Published Videos (Newest first, supports category & search)
 app.get('/api/videos', async (req, res) => {
   try {
@@ -301,6 +428,7 @@ app.get('/api/videos', async (req, res) => {
         COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_path, 
         COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
         duration, 
+        duration_seconds,
         published, 
         views, 
         created_at
@@ -334,12 +462,20 @@ app.get('/api/videos', async (req, res) => {
     }
 
     const videos = await query.all(sql, params);
-    const formatted = videos.map(v => ({
-      ...v,
-      video_url: null,
-      video_path: null,
-      published: v.published === true || v.published === 1 ? 1 : 0
-    }));
+    const formatted = videos.map(v => {
+      const durSec = v.duration_seconds !== null && v.duration_seconds !== undefined ? Number(v.duration_seconds) : parseDurationToSeconds(v.duration);
+      const thumbUrl = `/api/videos/${v.id}/thumbnail`;
+      return {
+        ...v,
+        thumbnail_path: thumbUrl,
+        thumbnail_url: thumbUrl,
+        duration: formatDuration(durSec) || v.duration || '00:00',
+        duration_seconds: durSec,
+        video_url: null,
+        video_path: null,
+        published: v.published === true || v.published === 1 ? 1 : 0
+      };
+    });
     res.json(formatted);
   } catch (err) {
     console.error('Error in GET /api/videos:', err);
@@ -367,6 +503,7 @@ app.get('/api/videos/:id', async (req, res) => {
          COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_path, 
          COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
          duration, 
+         duration_seconds,
          published, 
          views, 
          created_at
@@ -415,6 +552,7 @@ app.get('/api/videos/:id', async (req, res) => {
          COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
          category, 
          duration, 
+         duration_seconds,
          views, 
          created_at 
        FROM videos 
@@ -424,10 +562,18 @@ app.get('/api/videos/:id', async (req, res) => {
       [videoId]
     );
 
+    const isAdmin = resolveIsAdmin(req);
     const isSub = await resolveIsSubscribed(req);
+    const hasAccess = isAdmin || isSub;
     video.published = video.published === true || video.published === 1 ? 1 : 0;
 
-    if (isSub) {
+    const durSec = video.duration_seconds !== null && video.duration_seconds !== undefined ? Number(video.duration_seconds) : parseDurationToSeconds(video.duration);
+    video.duration_seconds = durSec;
+    video.duration = formatDuration(durSec) || video.duration || '00:00';
+    video.thumbnail_path = `/api/videos/${videoId}/thumbnail`;
+    video.thumbnail_url = `/api/videos/${videoId}/thumbnail`;
+
+    if (hasAccess) {
       video.is_locked = false;
       video.video_url = `/api/videos/${videoId}/stream`;
       video.video_path = `/api/videos/${videoId}/stream`;
@@ -437,16 +583,26 @@ app.get('/api/videos/:id', async (req, res) => {
       video.video_path = null;
     }
 
-    const formattedRelated = related.map(r => ({
-      ...r,
-      video_url: null,
-      video_path: null,
-      published: r.published === true || r.published === 1 ? 1 : 0
-    }));
+    const formattedRelated = related.map(r => {
+      const rSec = r.duration_seconds !== null && r.duration_seconds !== undefined ? Number(r.duration_seconds) : parseDurationToSeconds(r.duration);
+      const rThumb = `/api/videos/${r.id}/thumbnail`;
+      return {
+        ...r,
+        thumbnail_path: rThumb,
+        thumbnail_url: rThumb,
+        duration: formatDuration(rSec) || r.duration || '00:00',
+        duration_seconds: rSec,
+        video_url: null,
+        video_path: null,
+        published: r.published === true || r.published === 1 ? 1 : 0
+      };
+    });
 
     res.json({
       video,
       related: formattedRelated,
+      is_admin: isAdmin,
+      is_subscribed: isSub,
       subscription: {
         active: isSub,
         plan_price: PLAN_PRICE
@@ -466,8 +622,9 @@ app.get('/api/videos/:id/stream', async (req, res) => {
       return res.status(400).json({ error: 'Invalid video ID' });
     }
 
+    const isAdmin = resolveIsAdmin(req);
     const isSub = await resolveIsSubscribed(req);
-    if (!isSub) {
+    if (!isAdmin && !isSub) {
       return res.status(403).json({
         error: 'Active subscription required to watch this video',
         locked: true,
@@ -601,6 +758,7 @@ app.get('/api/subscription/config', (req, res) => {
 // Subscription status check for current visitor
 app.get('/api/subscription/status', async (req, res) => {
   try {
+    const isAdmin = resolveIsAdmin(req);
     const isSub = await resolveIsSubscribed(req);
     let email = '';
     let expiresAt = null;
@@ -618,7 +776,8 @@ app.get('/api/subscription/status', async (req, res) => {
 
     res.json({
       subscribed: isSub,
-      status: isSub ? 'active' : 'inactive',
+      is_admin: isAdmin,
+      status: isSub ? 'active' : (isAdmin ? 'admin' : 'inactive'),
       plan_price: PLAN_PRICE,
       email: email,
       expires_at: expiresAt
@@ -932,16 +1091,25 @@ app.get('/api/admin/videos', requireAdminApi, async (req, res) => {
         COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_path, 
         COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
         duration, 
+        duration_seconds,
         published, 
         views, 
         created_at
       FROM videos 
       ORDER BY created_at DESC, id DESC
     `);
-    const formatted = videos.map(v => ({
-      ...v,
-      published: v.published === true || v.published === 1 ? 1 : 0
-    }));
+    const formatted = videos.map(v => {
+      const durSec = v.duration_seconds !== null && v.duration_seconds !== undefined ? Number(v.duration_seconds) : parseDurationToSeconds(v.duration);
+      const thumbUrl = `/api/videos/${v.id}/thumbnail`;
+      return {
+        ...v,
+        thumbnail_path: thumbUrl,
+        thumbnail_url: thumbUrl,
+        duration: formatDuration(durSec) || v.duration || '00:00',
+        duration_seconds: durSec,
+        published: v.published === true || v.published === 1 ? 1 : 0
+      };
+    });
     res.json(formatted);
   } catch (err) {
     console.error('Error in GET /api/admin/videos:', err);
@@ -1123,6 +1291,24 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
     const isPublished = published === '1' || published === 1 || published === 'true' || published === true ? 1 : 0;
     const cat = category || 'latest';
 
+    let duration_seconds = null;
+    if (req.body.duration_seconds !== undefined && req.body.duration_seconds !== null && req.body.duration_seconds !== '') {
+      const parsedSec = Number(req.body.duration_seconds);
+      if (Number.isFinite(parsedSec) && parsedSec >= 0) {
+        duration_seconds = Math.round(parsedSec);
+      }
+    }
+
+    let duration = formatDuration(duration_seconds);
+    if (!duration) {
+      if (req.body.duration && typeof req.body.duration === 'string' && req.body.duration.trim()) {
+        duration = req.body.duration.trim();
+        duration_seconds = parseDurationToSeconds(duration);
+      } else {
+        duration = '00:00';
+      }
+    }
+
     const result = await query.get(
       `INSERT INTO videos (
          title, 
@@ -1133,10 +1319,11 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
          thumbnail_path, 
          category, 
          duration, 
+         duration_seconds,
          published, 
          views
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         title.trim(),
@@ -1146,7 +1333,8 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
         thumbnail_url,
         thumbnail_url,
         cat,
-        '03:45',
+        duration,
+        duration_seconds,
         Boolean(isPublished),
         initialViews
       ]
@@ -1244,6 +1432,21 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
     const isPublished = published !== undefined ? (published === '1' || published === 1 || published === 'true' || published === true ? 1 : 0) : existingVideo.published;
     const cat = category || existingVideo.category;
 
+    let duration_seconds = existingVideo.duration_seconds !== null && existingVideo.duration_seconds !== undefined ? Number(existingVideo.duration_seconds) : parseDurationToSeconds(existingVideo.duration);
+    let duration = existingVideo.duration;
+
+    if (req.body.duration_seconds !== undefined && req.body.duration_seconds !== null && req.body.duration_seconds !== '') {
+      const parsedSec = Number(req.body.duration_seconds);
+      if (Number.isFinite(parsedSec) && parsedSec >= 0) {
+        duration_seconds = Math.round(parsedSec);
+        duration = formatDuration(duration_seconds);
+      }
+    } else if (req.body.duration && typeof req.body.duration === 'string' && req.body.duration.trim()) {
+      duration = req.body.duration.trim();
+      const parsedSec = parseDurationToSeconds(duration);
+      if (parsedSec !== null) duration_seconds = parsedSec;
+    }
+
     // 1. Update database record first
     const updated = await query.get(
       `UPDATE videos 
@@ -1255,9 +1458,11 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
          thumbnail_path = $5, 
          video_url = $6, 
          video_path = $7, 
-         published = $8, 
-         views = $9 
-       WHERE id = $10
+         duration = $8,
+         duration_seconds = $9,
+         published = $10, 
+         views = $11 
+       WHERE id = $12
        RETURNING *`,
       [
         title.trim(),
@@ -1267,6 +1472,8 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
         thumbnail_url,
         video_url,
         video_url,
+        duration,
+        duration_seconds,
         Boolean(isPublished),
         updatedViews,
         videoId

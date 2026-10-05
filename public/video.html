@@ -330,10 +330,11 @@
 
         isVideoLocked = Boolean(video.is_locked);
 
+        const secureThumbUrl = `/api/videos/${currentVideoId}/thumbnail`;
+
         if (isVideoLocked) {
           // Locked state: show paywall overlay, obscure preview with blurred thumbnail
-          const thumbUrl = video.thumbnail_url || video.thumbnail_path || '/uploads/thumbnails/seed-thumb-1.svg';
-          lockBackdrop.style.backgroundImage = `url('${thumbUrl}')`;
+          lockBackdrop.style.backgroundImage = `url('${secureThumbUrl}')`;
           lockOverlay.style.display = 'flex';
           subBadge.style.display = 'none';
 
@@ -344,7 +345,14 @@
           // Unlocked state: hide overlay and load authorized stream
           lockOverlay.style.display = 'none';
           subBadge.style.display = 'inline-flex';
-          player.poster = video.thumbnail_url || video.thumbnail_path;
+          if (data.is_admin) {
+            subBadge.className = 'badge-admin-preview';
+            subBadge.textContent = '🛡️ Admin Preview';
+          } else {
+            subBadge.className = 'badge-premium-active';
+            subBadge.textContent = '✨ Premium Active';
+          }
+          player.poster = secureThumbUrl;
           player.src = video.video_url || `/api/videos/${currentVideoId}/stream`;
         }
 
@@ -358,10 +366,11 @@
             const item = document.createElement('a');
             item.href = `/video/${rel.id}`;
             item.className = 'related-card';
+            const relThumb = `/api/videos/${rel.id}/thumbnail`;
             item.innerHTML = `
               <div class="related-thumb-box">
-                <img class="related-thumb" src="${rel.thumbnail_path}" alt="${rel.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
-                <span class="related-duration">${rel.duration || '03:45'}</span>
+                <img class="related-thumb" src="${relThumb}" alt="${rel.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
+                <span class="related-duration">${rel.duration || '00:00'}</span>
               </div>
               <div class="related-info">
                 <h4 class="related-video-title">${rel.title}</h4>
@@ -390,6 +399,7 @@
 
       lockOverlay.style.display = 'none';
       subBadge.style.display = 'inline-flex';
+      subBadge.className = 'badge-premium-active';
       subBadge.textContent = '✨ Premium Active';
 
       player.src = `/api/videos/${currentVideoId}/stream`;
@@ -411,6 +421,8 @@
             const sData = await sRes.json();
             if (sData.subscribed) {
               unlockVideoDirectly();
+            } else if (sData.is_admin) {
+              initVideoPage();
             }
           }
         } catch (_) {}

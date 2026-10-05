@@ -36,6 +36,66 @@
   const addVideoFile = document.getElementById('addVideoFile');
   const videoSelectedName = document.getElementById('videoSelectedName');
 
+  let addVideoDurationSeconds = null;
+  let editVideoDurationSeconds = null;
+
+  function formatDuration(seconds) {
+    const sec = Math.round(Number(seconds) || 0);
+    if (sec <= 0) return '00:00';
+    const hrs = Math.floor(sec / 3600);
+    const mins = Math.floor((sec % 3600) / 60);
+    const remainingSecs = sec % 60;
+    if (hrs > 0) {
+      return `${hrs}:${String(mins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
+    }
+    return `${String(mins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
+  }
+
+  function extractVideoDuration(file) {
+    return new Promise((resolve) => {
+      try {
+        const tempVideo = document.createElement('video');
+        tempVideo.preload = 'metadata';
+        const objectUrl = URL.createObjectURL(file);
+        tempVideo.src = objectUrl;
+
+        let resolved = false;
+        const cleanup = () => {
+          if (!resolved) {
+            resolved = true;
+            try {
+              URL.revokeObjectURL(objectUrl);
+              tempVideo.removeAttribute('src');
+              tempVideo.load();
+            } catch (_) {}
+          }
+        };
+
+        tempVideo.onloadedmetadata = () => {
+          const duration = tempVideo.duration;
+          cleanup();
+          if (isFinite(duration) && duration > 0) {
+            resolve(Math.round(duration));
+          } else {
+            resolve(null);
+          }
+        };
+
+        tempVideo.onerror = () => {
+          cleanup();
+          resolve(null);
+        };
+
+        setTimeout(() => {
+          cleanup();
+          resolve(null);
+        }, 5000);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+  }
+
   const editVideoModal = document.getElementById('editVideoModal');
   const btnCloseEditModal = document.getElementById('btnCloseEditModal');
   const btnCancelEdit = document.getElementById('btnCancelEdit');
@@ -315,11 +375,12 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="admin-thumb-cell">
-          <img class="admin-thumb-img" src="${v.thumbnail_url || v.thumbnail_path}" alt="${v.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
+          <img class="admin-thumb-img" src="/api/videos/${v.id}/thumbnail" alt="${v.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
         </td>
         <td class="admin-title-cell">
           <div class="admin-table-video-title" title="${v.title}">${v.title}</div>
           <div class="admin-table-desc">${v.description || 'No description'}</div>
+          ${v.duration ? `<div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); margin-top: 3px;">⏱ ${v.duration}</div>` : ''}
         </td>
         <td>
           <span class="category-tag">${(v.category || 'latest').toUpperCase()}</span>
@@ -373,7 +434,7 @@
       card.innerHTML = `
         <div class="admin-card-top">
           <div class="admin-card-thumb-box">
-            <img class="admin-card-thumb-img" src="${v.thumbnail_url || v.thumbnail_path}" alt="${v.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
+            <img class="admin-card-thumb-img" src="/api/videos/${v.id}/thumbnail" alt="${v.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
           </div>
           <div class="admin-card-meta">
             <h3 class="admin-card-title">${v.title}</h3>
@@ -384,7 +445,7 @@
               </span>
             </div>
             <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
-              ${Number(v.views || 0).toLocaleString()} views · ${formatDate(v.created_at)}
+              ${v.duration ? `<span style="font-family: var(--font-mono); font-weight: 600;">${v.duration}</span> · ` : ''}${Number(v.views || 0).toLocaleString()} views · ${formatDate(v.created_at)}
             </div>
           </div>
         </div>
@@ -439,6 +500,7 @@
 
   btnOpenAddModal.addEventListener('click', () => {
     addVideoForm.reset();
+    addVideoDurationSeconds = null;
     const addInitialViews = document.getElementById('addInitialViews');
     if (addInitialViews) addInitialViews.value = '0';
     thumbSelectedName.textContent = '';
@@ -476,10 +538,18 @@
     }
   });
 
-  addVideoFile.addEventListener('change', () => {
+  addVideoFile.addEventListener('change', async () => {
     const file = addVideoFile.files[0];
+    addVideoDurationSeconds = null;
     if (file) {
-      videoSelectedName.textContent = `Selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`;
+      videoSelectedName.textContent = `Selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB) — Detecting duration...`;
+      const detectedDuration = await extractVideoDuration(file);
+      if (detectedDuration) {
+        addVideoDurationSeconds = detectedDuration;
+        videoSelectedName.textContent = `Selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB, ${formatDuration(detectedDuration)})`;
+      } else {
+        videoSelectedName.textContent = `Selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`;
+      }
     } else {
       videoSelectedName.textContent = '';
     }
@@ -613,7 +683,8 @@
             initial_views: initialViews,
             published,
             video_url: videoBlob.url,
-            thumbnail_url: thumbBlob.url
+            thumbnail_url: thumbBlob.url,
+            duration_seconds: addVideoDurationSeconds
           })
         });
 
@@ -655,6 +726,9 @@
     formData.append('published', published);
     formData.append('thumbnail', thumbFile);
     formData.append('video', videoFile);
+    if (addVideoDurationSeconds) {
+      formData.append('duration_seconds', addVideoDurationSeconds);
+    }
 
     if (btnSubmitText) btnSubmitText.textContent = 'Uploading 0%...';
     if (uploadProgressLabel) uploadProgressLabel.textContent = 'Uploading files to server...';
@@ -739,6 +813,7 @@
     editThumbSelectedName.textContent = '';
     if (editVideoFile) editVideoFile.value = '';
     if (editVideoSelectedName) editVideoSelectedName.textContent = '';
+    editVideoDurationSeconds = null;
     editErrorBanner.style.display = 'none';
 
     if (editUploadProgressContainer) editUploadProgressContainer.style.display = 'none';
@@ -766,10 +841,18 @@
   });
 
   if (editVideoFile) {
-    editVideoFile.addEventListener('change', () => {
+    editVideoFile.addEventListener('change', async () => {
       const file = editVideoFile.files[0];
+      editVideoDurationSeconds = null;
       if (file) {
-        editVideoSelectedName.textContent = `New replacement: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`;
+        editVideoSelectedName.textContent = `New replacement: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB) — Detecting duration...`;
+        const detectedDuration = await extractVideoDuration(file);
+        if (detectedDuration) {
+          editVideoDurationSeconds = detectedDuration;
+          editVideoSelectedName.textContent = `New replacement: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB, ${formatDuration(detectedDuration)})`;
+        } else {
+          editVideoSelectedName.textContent = `New replacement: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`;
+        }
       } else {
         editVideoSelectedName.textContent = '';
       }
@@ -897,7 +980,10 @@
           published
         };
         if (newThumbUrl) updatePayload.thumbnail_url = newThumbUrl;
-        if (newVideoUrl) updatePayload.video_url = newVideoUrl;
+        if (newVideoUrl) {
+          updatePayload.video_url = newVideoUrl;
+          if (editVideoDurationSeconds) updatePayload.duration_seconds = editVideoDurationSeconds;
+        }
 
         const res = await fetch(`/api/videos/${id}`, {
           method: 'PUT',
@@ -960,7 +1046,10 @@
       formData.append('views', viewsVal);
       formData.append('published', published);
       if (newThumb) formData.append('thumbnail', newThumb);
-      if (newVideo) formData.append('video', newVideo);
+      if (newVideo) {
+        formData.append('video', newVideo);
+        if (editVideoDurationSeconds) formData.append('duration_seconds', editVideoDurationSeconds);
+      }
       reqBody = formData;
     }
 

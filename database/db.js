@@ -247,11 +247,15 @@ async function initDatabase() {
             video_path TEXT,
             thumbnail_url TEXT,
             thumbnail_path TEXT,
-            duration VARCHAR(20) DEFAULT '03:45',
+            duration VARCHAR(20) DEFAULT '00:00',
+            duration_seconds INTEGER,
             published BOOLEAN DEFAULT TRUE,
             views BIGINT DEFAULT 0,
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
           );
+
+          -- Safe non-destructive column addition for existing production databases
+          ALTER TABLE videos ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
 
           CREATE INDEX IF NOT EXISTS idx_videos_published ON videos (published);
           CREATE INDEX IF NOT EXISTS idx_videos_category ON videos (category);
@@ -308,7 +312,8 @@ async function initDatabase() {
         video_path TEXT NOT NULL,
         thumbnail_url TEXT,
         thumbnail_path TEXT NOT NULL,
-        duration TEXT DEFAULT '03:45',
+        duration TEXT DEFAULT '00:00',
+        duration_seconds INTEGER,
         published INTEGER DEFAULT 1,
         views INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -345,6 +350,9 @@ async function initDatabase() {
           if (!colNames.includes('thumbnail_url')) {
             await new Promise(r => sqliteDb.run('ALTER TABLE videos ADD COLUMN thumbnail_url TEXT', r));
             await new Promise(r => sqliteDb.run('UPDATE videos SET thumbnail_url = thumbnail_path WHERE thumbnail_url IS NULL', r));
+          }
+          if (!colNames.includes('duration_seconds')) {
+            await new Promise(r => sqliteDb.run('ALTER TABLE videos ADD COLUMN duration_seconds INTEGER', r));
           }
         }
         resolve();

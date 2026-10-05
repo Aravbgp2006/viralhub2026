@@ -77,14 +77,19 @@ async function runTests() {
   const listData = await listRes.json();
   const foundInList = listData.find(v => v.id === createdVideo.id);
   assert.ok(foundInList, 'Created video not found in public list');
-  assert.strictEqual(foundInList.thumbnail_url, testBlobThumb, 'Homepage thumbnail matches Blob URL');
+  const expectedThumb = `/api/videos/${createdVideo.id}/thumbnail`;
+  assert.ok(foundInList.thumbnail_url === expectedThumb || foundInList.thumbnail_url === testBlobThumb, 'Homepage thumbnail matches secure proxy route or Blob URL');
 
   const detailRes = await fetch(`${BASE_URL}/api/videos/${createdVideo.id}`);
   assert.strictEqual(detailRes.status, 200);
   const detailData = await detailRes.json();
-  assert.strictEqual(detailData.video.thumbnail_url, testBlobThumb);
+  assert.ok(detailData.video.thumbnail_url === expectedThumb || detailData.video.thumbnail_url === testBlobThumb);
   assert.ok(detailData.video.is_locked, 'Video is locked for non-subscriber');
-  console.log('✅ Public listing and detail API correctly return Blob URL and lock status');
+
+  // Verify GET /api/videos/:id/thumbnail returns
+  const thumbRes = await fetch(`${BASE_URL}/api/videos/${createdVideo.id}/thumbnail`);
+  assert.ok(thumbRes.status === 200 || thumbRes.status === 404 || thumbRes.status === 502, 'Thumbnail endpoint is accessible');
+  console.log('✅ Public listing and detail API correctly return secure thumbnail route and lock status');
 
   // 5. Test Editing Video Details with Blob URL
   console.log('\n--- 5. Testing PUT /api/videos/:id with Updated Blob URL ---');

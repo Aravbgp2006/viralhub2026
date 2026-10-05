@@ -181,8 +181,8 @@
 
       card.innerHTML = `
         <div class="video-card-thumb-wrapper">
-          <img class="video-card-thumb" src="${video.thumbnail_url || video.thumbnail_path}" alt="${video.title}" loading="${index < 4 ? 'eager' : 'lazy'}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
-          <span class="video-badge-duration">${video.duration || '03:45'}</span>
+          <img class="video-card-thumb" src="/api/videos/${video.id}/thumbnail" alt="${video.title}" loading="${index < 4 ? 'eager' : 'lazy'}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
+          <span class="video-badge-duration">${video.duration || '00:00'}</span>
           <div class="video-play-overlay" aria-hidden="true">
             <div class="video-play-btn">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">

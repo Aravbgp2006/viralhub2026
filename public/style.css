@@ -2737,6 +2737,20 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   border: 1px solid rgba(110, 231, 183, 0.3);
 }
 
+.badge-admin-preview {
+  background: #312E81;
+  color: #C7D2FE;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(199, 210, 254, 0.3);
+  letter-spacing: 0.02em;
+}
+
 .status-badge.status-active {
   background-color: #d1fae5;
   color: #065f46;
