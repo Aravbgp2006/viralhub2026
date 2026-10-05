@@ -264,7 +264,9 @@ async function createOrderForVideo(params) {
         email: normalizedEmail,
         is_mock: false,
         is_test_mode: false,
-        is_configured: true
+        is_configured: true,
+        payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null,
+        has_payment_link: Boolean(RAZORPAY_PAYMENT_LINK_URL)
       };
     } catch (err) {
       console.error('Error creating Razorpay order for video:', err);
@@ -284,7 +286,9 @@ async function createOrderForVideo(params) {
     email: normalizedEmail,
     is_mock: true,
     is_test_mode: true,
-    is_configured: false
+    is_configured: false,
+    payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null,
+    has_payment_link: Boolean(RAZORPAY_PAYMENT_LINK_URL)
   };
 }
 

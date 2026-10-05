@@ -43,13 +43,15 @@ function isRazorpayConfigured() {
  * Returns public safe Razorpay configuration
  */
 function getPublicConfig() {
+  const hasLink = Boolean(RAZORPAY_PAYMENT_LINK_URL);
+  const isConfigured = isRazorpayConfigured();
   return {
     key_id: RAZORPAY_KEY_ID || 'rzp_test_mock_viralhub',
     plan_id: RAZORPAY_PLAN_ID || 'plan_mock_viralhub_9',
     plan_price: PLAN_PRICE,
-    is_configured: isRazorpayConfigured(),
+    is_configured: Boolean(isConfigured || hasLink),
     payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null,
-    has_payment_link: Boolean(RAZORPAY_PAYMENT_LINK_URL),
+    has_payment_link: hasLink,
     test_mode: !RAZORPAY_KEY_ID || RAZORPAY_KEY_ID.startsWith('rzp_test_') || RAZORPAY_KEY_ID.includes('mock')
   };
 }

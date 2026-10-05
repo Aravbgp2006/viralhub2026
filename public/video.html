@@ -250,11 +250,27 @@
     let isVideoLocked = false;
     let activeVideoData = null;
 
-    // Fetch video detail based on path /video/:id
+    // Fetch video detail based on path /video/:id or query parameters
     async function initVideoPage() {
       const cleanPath = window.location.pathname.replace(/\/+$/, '');
       const pathParts = cleanPath.split('/');
-      currentVideoId = pathParts[pathParts.length - 1];
+      let candidateId = pathParts[pathParts.length - 1];
+
+      const urlParams = new URLSearchParams(window.location.search);
+      if (!candidateId || isNaN(candidateId)) {
+        candidateId = urlParams.get('id') || urlParams.get('videoId') || urlParams.get('v');
+      }
+      if (!candidateId || isNaN(candidateId)) {
+        try {
+          const cookieMatch = document.cookie.match(/(?:^|;\s*)vh_pending_vid=(\d+)/);
+          if (cookieMatch) candidateId = cookieMatch[1];
+          if (!candidateId) {
+            candidateId = sessionStorage.getItem('vh_pending_checkout_vid') || localStorage.getItem('vh_pending_checkout_vid');
+          }
+        } catch (_) {}
+      }
+
+      currentVideoId = candidateId;
 
       if (!currentVideoId || isNaN(currentVideoId)) {
         showError('Invalid video ID specified.');
@@ -262,7 +278,6 @@
       }
 
       // Check for redirect query parameters from Razorpay Payment Link or Checkout
-      const urlParams = new URLSearchParams(window.location.search);
       const paymentId = urlParams.get('razorpay_payment_id') || urlParams.get('payment_id');
       const orderId = urlParams.get('razorpay_order_id');
       const paymentLinkId = urlParams.get('razorpay_payment_link_id');
@@ -487,176 +502,202 @@
 
       function showErrorMessage(msg) {
         resetButtons();
+        const safeMsg = msg || 'Payment could not be started. Please try again.';
         if (errorAlert) {
-          errorAlert.textContent = msg;
+          errorAlert.textContent = safeMsg;
           errorAlert.style.display = 'block';
         }
         if (checkoutError) {
-          checkoutError.textContent = msg;
+          checkoutError.textContent = safeMsg;
           checkoutError.style.display = 'block';
         }
         const toast = document.getElementById('toastNotice');
         if (toast) {
-          toast.textContent = msg;
+          toast.textContent = safeMsg;
           toast.classList.add('show');
-          setTimeout(() => toast.classList.remove('show'), 3500);
+          setTimeout(() => toast.classList.remove('show'), 4000);
         }
       }
 
+      // Safety timeout so the button NEVER stays permanently stuck on "Opening Payment..."
+      const safetyTimeout = setTimeout(() => {
+        resetButtons();
+      }, 7000);
+
       try {
-        // 1. Get payment configuration from server
-        const configRes = await fetch('/api/entitlements/config');
-        if (!configRes.ok) {
-          showErrorMessage('Unable to retrieve payment configuration. Please try again.');
-          return;
-        }
-        const config = await configRes.json();
-
-        // 2. Create order on server for THIS exact video ID
-        const orderRes = await fetch('/api/entitlements/create-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            video_id: currentVideoId,
-            email: prefillEmail,
-            phone: prefillPhone
-          })
-        });
-
-        const orderData = await orderRes.json();
-        if (!orderRes.ok || !orderData.order_id) {
-          showErrorMessage(orderData.error || 'Failed to initialize payment gateway.');
+        if (!currentVideoId || isNaN(currentVideoId)) {
+          clearTimeout(safetyTimeout);
+          showErrorMessage('Payment could not be started. Please try again.');
           return;
         }
 
-        // 3. Try Razorpay standard checkout popup first if SDK and key are available
-        const hasRealRazorpay = typeof window.Razorpay === 'function' && 
-                                orderData.key_id && 
-                                !orderData.key_id.includes('mock') && 
-                                !orderData.is_mock;
+        // Always preserve current video ID before redirect or checkout
+        try {
+          sessionStorage.setItem('vh_pending_checkout_vid', String(currentVideoId));
+          localStorage.setItem('vh_pending_checkout_vid', String(currentVideoId));
+          document.cookie = `vh_pending_vid=${currentVideoId}; path=/; max-age=7200; SameSite=Lax`;
+        } catch (_) {}
+
+        // 1. Fetch current payment configuration from server
+        let config = null;
+        try {
+          const configRes = await fetch('/api/entitlements/config', { signal: AbortSignal.timeout(5000) });
+          if (configRes.ok) config = await configRes.json();
+        } catch (cErr) {
+          console.error('Config fetch error:', cErr);
+        }
+
+        if (!config) {
+          try {
+            const fbRes = await fetch('/api/payment/config', { signal: AbortSignal.timeout(5000) });
+            if (fbRes.ok) config = await fbRes.json();
+          } catch (_) {}
+        }
+
+        if (!config || (!config.is_configured && !config.test_mode && !config.payment_link_url)) {
+          clearTimeout(safetyTimeout);
+          showErrorMessage('Payment could not be started. Please try again.');
+          return;
+        }
+
+        // Check if standard Razorpay checkout popup is usable
+        const hasRealRazorpay = typeof window.Razorpay === 'function' &&
+                                config.key_id &&
+                                !config.key_id.includes('mock') &&
+                                !config.test_mode;
 
         if (hasRealRazorpay) {
-          const options = {
-            key: orderData.key_id,
-            order_id: orderData.order_id,
-            amount: orderData.amount || 900,
-            currency: 'INR',
-            name: 'Latest Viral Videos 2026',
-            description: `Unlock Video #${currentVideoId} (₹9/month)`,
-            image: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>',
-            prefill: {
-              email: prefillEmail || '',
-              contact: prefillPhone || ''
-            },
-            notes: {
-              video_id: String(currentVideoId)
-            },
-            theme: { color: '#000000' },
-            handler: async function (response) {
-              if (unlockBtn) {
-                const s = unlockBtn.querySelector('span');
-                if (s) s.textContent = 'Verifying payment...';
-              }
-              try {
-                const verifyRes = await fetch('/api/entitlements/verify', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    video_id: currentVideoId,
-                    razorpay_payment_id: response.razorpay_payment_id,
-                    razorpay_order_id: response.razorpay_order_id,
-                    razorpay_signature: response.razorpay_signature,
-                    email: prefillEmail,
-                    phone: prefillPhone
-                  })
-                });
-
-                const verifyData = await verifyRes.json();
-                if (!verifyRes.ok || !verifyData.unlocked) {
-                  throw new Error(verifyData.error || 'Server-side payment verification failed');
-                }
-
-                if (checkoutModal) checkoutModal.style.display = 'none';
-                unlockVideoDirectly(verifyData.video_url || verifyData.stream_url);
-              } catch (vErr) {
-                showErrorMessage(vErr.message);
-              } finally {
-                resetButtons();
-              }
-            },
-            modal: {
-              ondismiss: function () {
-                resetButtons();
-              }
-            }
-          };
-
-          const rzp = new window.Razorpay(options);
-          rzp.on('payment.failed', function (resp) {
-            showErrorMessage(resp.error?.description || 'Payment failed or was cancelled.');
-          });
-          rzp.open();
-          return;
-        }
-
-        // 4. Try Razorpay Payment Link (configured in production: https://rzp.io/rzp/sYfgdwS)
-        const paymentLinkUrl = orderData.payment_link_url || config.payment_link_url;
-        if (paymentLinkUrl) {
-          // Preserve current video ID in session/cookie for return flow
-          try {
-            sessionStorage.setItem('vh_pending_checkout_vid', String(currentVideoId));
-            localStorage.setItem('vh_pending_checkout_vid', String(currentVideoId));
-            document.cookie = `vh_pending_vid=${currentVideoId}; path=/; max-age=3600`;
-          } catch (_) {}
-
-          // Navigate to Razorpay Payment Link
-          window.location.href = paymentLinkUrl;
-          return;
-        }
-
-        // 5. If neither is available and not in test mode, display visible error
-        if (!config.is_configured && !config.test_mode) {
-          showErrorMessage('Razorpay payment gateway is not configured on this server. Please contact support.');
-          return;
-        }
-
-        // 6. Test mode fallback (when running automated tests / local mock without keys)
-        if (checkoutModal && checkoutModal.style.display === 'flex') {
-          const verifyRes = await fetch('/api/entitlements/verify', {
+          // Standard Razorpay Checkout popup flow
+          const orderRes = await fetch('/api/entitlements/create-order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               video_id: currentVideoId,
-              razorpay_payment_id: 'pay_test_' + Date.now(),
-              razorpay_order_id: orderData.order_id,
-              razorpay_signature: 'sig_test_valid',
               email: prefillEmail,
               phone: prefillPhone
-            })
+            }),
+            signal: AbortSignal.timeout(6000)
           });
+          const orderData = await orderRes.json();
 
-          const verifyData = await verifyRes.json();
-          if (!verifyRes.ok || !verifyData.unlocked) {
-            throw new Error(verifyData.error || 'Server-side payment verification failed');
+          if (orderRes.ok && orderData.order_id) {
+            clearTimeout(safetyTimeout);
+            const options = {
+              key: orderData.key_id || config.key_id,
+              order_id: orderData.order_id,
+              amount: orderData.amount || 900,
+              currency: 'INR',
+              name: 'Latest Viral Videos 2026',
+              description: `Unlock Video #${currentVideoId} (₹9/month)`,
+              image: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>',
+              prefill: {
+                email: prefillEmail || '',
+                contact: prefillPhone || ''
+              },
+              notes: {
+                video_id: String(currentVideoId)
+              },
+              theme: { color: '#000000' },
+              handler: async function (response) {
+                if (unlockBtn) {
+                  const s = unlockBtn.querySelector('span');
+                  if (s) s.textContent = 'Verifying payment...';
+                }
+                try {
+                  const verifyRes = await fetch('/api/entitlements/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      video_id: currentVideoId,
+                      razorpay_payment_id: response.razorpay_payment_id,
+                      razorpay_order_id: response.razorpay_order_id,
+                      razorpay_signature: response.razorpay_signature,
+                      email: prefillEmail,
+                      phone: prefillPhone
+                    })
+                  });
+
+                  const verifyData = await verifyRes.json();
+                  if (!verifyRes.ok || !verifyData.unlocked) {
+                    throw new Error(verifyData.error || 'Server-side payment verification failed');
+                  }
+
+                  if (checkoutModal) checkoutModal.style.display = 'none';
+                  unlockVideoDirectly(verifyData.video_url || verifyData.stream_url);
+                } catch (vErr) {
+                  showErrorMessage(vErr.message);
+                } finally {
+                  resetButtons();
+                }
+              },
+              modal: {
+                ondismiss: function () {
+                  resetButtons();
+                }
+              }
+            };
+
+            const rzp = new window.Razorpay(options);
+            rzp.on('payment.failed', function (resp) {
+              showErrorMessage(resp.error?.description || 'Payment failed or was cancelled.');
+            });
+            rzp.open();
+            return;
+          }
+        }
+
+        // Razorpay Payment Link flow (configured in production: https://rzp.io/rzp/sYfgdwS)
+        const paymentLinkUrl = config.payment_link_url;
+        if (paymentLinkUrl && paymentLinkUrl.startsWith('http')) {
+          window.location.href = paymentLinkUrl;
+          return;
+        }
+
+        // Automated test mode fallback (when running automated tests / local mock without keys)
+        if (config.test_mode) {
+          if (checkoutModal && checkoutModal.style.display === 'flex') {
+            const verifyRes = await fetch('/api/entitlements/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                video_id: currentVideoId,
+                razorpay_payment_id: 'pay_test_' + Date.now(),
+                razorpay_order_id: 'order_test_' + Date.now(),
+                razorpay_signature: 'sig_test_valid',
+                email: prefillEmail,
+                phone: prefillPhone
+              })
+            });
+
+            const verifyData = await verifyRes.json();
+            if (!verifyRes.ok || !verifyData.unlocked) {
+              throw new Error(verifyData.error || 'Server-side payment verification failed');
+            }
+
+            checkoutModal.style.display = 'none';
+            unlockVideoDirectly(verifyData.video_url || verifyData.stream_url);
+            resetButtons();
+            return;
           }
 
-          checkoutModal.style.display = 'none';
-          unlockVideoDirectly(verifyData.video_url || verifyData.stream_url);
+          clearTimeout(safetyTimeout);
+          document.getElementById('checkoutErrorBanner').style.display = 'none';
+          const label = document.getElementById('checkoutVideoLabel');
+          if (label && activeVideoData) {
+            label.textContent = `Unlock: ${activeVideoData.title.substring(0, 32)}...`;
+          }
+          checkoutModal.style.display = 'flex';
           resetButtons();
           return;
         }
 
-        // Otherwise open checkout modal
-        document.getElementById('checkoutErrorBanner').style.display = 'none';
-        const label = document.getElementById('checkoutVideoLabel');
-        if (label && activeVideoData) {
-          label.textContent = `Unlock: ${activeVideoData.title.substring(0, 32)}...`;
-        }
-        checkoutModal.style.display = 'flex';
-        resetButtons();
+        clearTimeout(safetyTimeout);
+        showErrorMessage('Payment could not be started. Please try again.');
 
       } catch (err) {
-        showErrorMessage(err.message || 'Payment initiation failed. Please try again.');
+        clearTimeout(safetyTimeout);
+        console.error('Payment error:', err);
+        showErrorMessage('Payment could not be started. Please try again.');
       }
     }
 

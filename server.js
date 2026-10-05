@@ -316,11 +316,28 @@ function getPublicPath(filename) {
 
 // Public Homepage
 app.get('/', (req, res) => {
+  const paymentId = req.query.razorpay_payment_id || req.query.payment_id;
+  const pendingVid = req.cookies?.vh_pending_vid;
+  if (paymentId && pendingVid) {
+    const qs = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    return res.redirect(`/video/${pendingVid}${qs}`);
+  }
   res.sendFile(getPublicPath('index.html'));
 });
 
 // Dedicated Public Video Detail Page (e.g. /video/1)
 app.get('/video/:id', (req, res) => {
+  res.sendFile(getPublicPath('video.html'));
+});
+
+// Video route alias with pending video ID resolution
+app.get(['/video', '/video/'], (req, res) => {
+  const paymentId = req.query.razorpay_payment_id || req.query.payment_id;
+  const pendingVid = req.cookies?.vh_pending_vid || req.query.id || req.query.videoId;
+  if (pendingVid) {
+    const qs = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    return res.redirect(`/video/${pendingVid}${qs}`);
+  }
   res.sendFile(getPublicPath('video.html'));
 });
 
@@ -1012,7 +1029,7 @@ app.post('/api/subscription/restore', async (req, res) => {
 // ==========================================================================
 
 // Safe public entitlement configuration for video checkout
-app.get(['/api/entitlements/config', '/api/videos/:id/config'], (req, res) => {
+app.get(['/api/entitlements/config', '/api/payment/config', '/api/videos/:id/config'], (req, res) => {
   const videoId = req.params.id ? parseInt(req.params.id, 10) : null;
   res.json(getPublicEntitlementConfig(videoId));
 });

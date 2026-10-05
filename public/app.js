@@ -59,6 +59,27 @@
   const toastNotice = document.getElementById('toastNotice');
 
   // ========================================================================
+  // 0. PAYMENT RETURN REDIRECT
+  // If user was redirected to homepage after Razorpay checkout, redirect to video
+  // ========================================================================
+  const homeUrlParams = new URLSearchParams(window.location.search);
+  const rzpPaymentId = homeUrlParams.get('razorpay_payment_id') || homeUrlParams.get('payment_id');
+  if (rzpPaymentId) {
+    let pendingVid = null;
+    try {
+      const cookieMatch = document.cookie.match(/(?:^|;\s*)vh_pending_vid=(\d+)/);
+      if (cookieMatch) pendingVid = cookieMatch[1];
+      if (!pendingVid) {
+        pendingVid = sessionStorage.getItem('vh_pending_checkout_vid') || localStorage.getItem('vh_pending_checkout_vid');
+      }
+    } catch (_) {}
+    if (pendingVid) {
+      window.location.replace(`/video/${pendingVid}${window.location.search}`);
+      return;
+    }
+  }
+
+  // ========================================================================
   // 1. AGE GATE LOGIC
   // Verification appears only once for first-time visitors and persists in storage.
   // Both buttons allow entry and store verification state.
