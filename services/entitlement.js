@@ -182,11 +182,16 @@ async function hasVideoEntitlement(reqOrUserId, videoId, optionalEmail) {
 /**
  * Creates a Razorpay Order for a specific video
  */
-async function createOrderForVideo({ video_id, user_id, email, phone }) {
-  const vid = parseInt(video_id, 10);
+async function createOrderForVideo(params) {
+  const rawVid = params?.video_id !== undefined ? params.video_id : params?.videoId;
+  const vid = parseInt(rawVid, 10);
   if (isNaN(vid) || vid <= 0) {
     throw new Error('A valid video ID is required');
   }
+
+  const user_id = params?.user_id || params?.userId;
+  const email = params?.email || params?.customerEmail;
+  const phone = params?.phone || params?.customerPhone;
 
   // Verify video exists and is published
   const video = await query.get('SELECT id, title, published FROM videos WHERE id = $1 AND published = true', [vid]);
@@ -247,19 +252,19 @@ async function createOrderForVideo({ video_id, user_id, email, phone }) {
 /**
  * Server-side payment verification and entitlement creation for a specific video
  */
-async function verifyAndCreateEntitlement({
-  video_id,
-  razorpay_payment_id,
-  razorpay_order_id,
-  razorpay_signature,
-  user_id,
-  email,
-  phone
-}) {
-  const vid = parseInt(video_id, 10);
+async function verifyAndCreateEntitlement(params) {
+  const rawVid = params?.video_id !== undefined ? params.video_id : params?.videoId;
+  const vid = parseInt(rawVid, 10);
   if (isNaN(vid) || vid <= 0) {
     throw new Error('Invalid video ID specified');
   }
+
+  const razorpay_payment_id = params?.razorpay_payment_id || params?.paymentId;
+  const razorpay_order_id = params?.razorpay_order_id || params?.orderId;
+  const razorpay_signature = params?.razorpay_signature || params?.signature;
+  const user_id = params?.user_id || params?.userId;
+  const email = params?.email || params?.customerEmail;
+  const phone = params?.phone || params?.customerPhone;
 
   if (!razorpay_payment_id) {
     throw new Error('Payment ID is required for verification');
@@ -433,21 +438,21 @@ async function verifyAndCreateEntitlement({
 /**
  * Verifies Razorpay Payment Link return for a specific video
  */
-async function verifyPaymentLinkForVideo({
-  video_id,
-  razorpay_payment_id,
-  razorpay_payment_link_id,
-  razorpay_payment_link_reference_id,
-  razorpay_payment_link_status,
-  razorpay_signature,
-  user_id,
-  email,
-  phone
-}) {
-  const vid = parseInt(video_id, 10);
+async function verifyPaymentLinkForVideo(params) {
+  const rawVid = params?.video_id !== undefined ? params.video_id : params?.videoId;
+  const vid = parseInt(rawVid, 10);
   if (isNaN(vid) || vid <= 0) {
     throw new Error('Invalid video ID specified');
   }
+
+  const razorpay_payment_id = params?.razorpay_payment_id || params?.paymentId;
+  const razorpay_payment_link_id = params?.razorpay_payment_link_id || params?.paymentLinkId;
+  const razorpay_payment_link_reference_id = params?.razorpay_payment_link_reference_id || params?.referenceId;
+  const razorpay_payment_link_status = params?.razorpay_payment_link_status || params?.status;
+  const razorpay_signature = params?.razorpay_signature || params?.signature;
+  const user_id = params?.user_id || params?.userId;
+  const email = params?.email || params?.customerEmail;
+  const phone = params?.phone || params?.customerPhone;
 
   if (!razorpay_payment_id) {
     throw new Error('Payment ID is required for verification');

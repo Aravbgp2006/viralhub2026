@@ -1020,7 +1020,9 @@ app.get(['/api/entitlements/check/:id', '/api/videos/:id/entitlement'], async (r
 // Create Razorpay Order for a specific video
 app.post(['/api/entitlements/create-order', '/api/payment/create-order'], async (req, res) => {
   try {
-    const { video_id, email, phone } = req.body;
+    const video_id = req.body.video_id || req.body.videoId;
+    const email = req.body.email || req.body.customerEmail || req.body.customer_email;
+    const phone = req.body.phone || req.body.customerPhone || req.body.customer_phone;
     if (!video_id) {
       return res.status(400).json({ error: 'video_id is required to create an order' });
     }
@@ -1045,20 +1047,18 @@ app.post(['/api/entitlements/create-order', '/api/payment/create-order'], async 
 // Server-side payment verification and entitlement creation for a specific video
 app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) => {
   try {
-    const {
-      video_id,
-      razorpay_payment_id,
-      razorpay_order_id,
-      razorpay_signature,
-      email,
-      phone
-    } = req.body;
+    const video_id = req.body.video_id || req.body.videoId;
+    const razorpay_payment_id = req.body.razorpay_payment_id || req.body.paymentId || req.body.razorpayPaymentId;
+    const razorpay_order_id = req.body.razorpay_order_id || req.body.orderId || req.body.razorpayOrderId;
+    const razorpay_signature = req.body.razorpay_signature || req.body.signature || req.body.razorpaySignature;
+    const email = req.body.email || req.body.customerEmail || req.body.customer_email;
+    const phone = req.body.phone || req.body.customerPhone || req.body.customer_phone;
 
     if (!video_id) {
-      return res.status(400).json({ error: 'video_id is required for verification' });
+      return res.status(400).json({ error: 'video_id is required for verification', unlocked: false });
     }
     if (!razorpay_payment_id) {
-      return res.status(400).json({ error: 'Payment ID is required for verification' });
+      return res.status(400).json({ error: 'Payment ID is required for verification', unlocked: false });
     }
 
     const ctx = resolveUserContext(req);
@@ -1086,29 +1086,27 @@ app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) =
     res.json(verification);
   } catch (err) {
     console.error('Error verifying video payment:', err);
-    res.status(400).json({ error: err.message || 'Server payment verification failed' });
+    res.status(400).json({ error: err.message || 'Server payment verification failed', unlocked: false });
   }
 });
 
 // Server-side verification for Razorpay Payment Link redirect return for a specific video
 app.post(['/api/entitlements/verify-link', '/api/payment/verify-link'], async (req, res) => {
   try {
-    const {
-      video_id,
-      razorpay_payment_id,
-      razorpay_payment_link_id,
-      razorpay_payment_link_reference_id,
-      razorpay_payment_link_status,
-      razorpay_signature,
-      email,
-      phone
-    } = req.body;
+    const video_id = req.body.video_id || req.body.videoId;
+    const razorpay_payment_id = req.body.razorpay_payment_id || req.body.paymentId || req.body.razorpayPaymentId;
+    const razorpay_payment_link_id = req.body.razorpay_payment_link_id || req.body.paymentLinkId || req.body.razorpayPaymentLinkId;
+    const razorpay_payment_link_reference_id = req.body.razorpay_payment_link_reference_id || req.body.referenceId || req.body.razorpayPaymentLinkReferenceId;
+    const razorpay_payment_link_status = req.body.razorpay_payment_link_status || req.body.status || req.body.razorpayPaymentLinkStatus;
+    const razorpay_signature = req.body.razorpay_signature || req.body.signature || req.body.razorpaySignature;
+    const email = req.body.email || req.body.customerEmail || req.body.customer_email;
+    const phone = req.body.phone || req.body.customerPhone || req.body.customer_phone;
 
     if (!video_id) {
-      return res.status(400).json({ error: 'video_id is required' });
+      return res.status(400).json({ error: 'video_id is required', unlocked: false });
     }
     if (!razorpay_payment_id) {
-      return res.status(400).json({ error: 'Missing payment ID' });
+      return res.status(400).json({ error: 'Missing payment ID', unlocked: false });
     }
 
     const ctx = resolveUserContext(req);
@@ -1136,21 +1134,30 @@ app.post(['/api/entitlements/verify-link', '/api/payment/verify-link'], async (r
     res.json(result);
   } catch (err) {
     console.error('Error in /api/entitlements/verify-link:', err);
-    res.status(400).json({ error: err.message || 'Payment link verification failed' });
+    res.status(400).json({ error: err.message || 'Payment link verification failed', unlocked: false });
   }
 });
 
-// Restore purchased video entitlements using email
+// Restore purchased video entitlements using email or userToken
 app.post(['/api/entitlements/restore', '/api/user/restore'], async (req, res) => {
   try {
-    const { identifier, video_id } = req.body;
-    if (!identifier || !identifier.trim()) {
-      return res.status(400).json({ error: 'Email address is required to restore access' });
+    let identifier = req.body.identifier || req.body.email || req.body.customerEmail || req.body.phone;
+    const video_id = req.body.video_id || req.body.videoId;
+
+    if (req.body.userToken || req.body.token) {
+      const decoded = verifyUserToken(req.body.userToken || req.body.token);
+      if (decoded && (decoded.email || decoded.user_id)) {
+        identifier = decoded.email || decoded.user_id;
+      }
     }
 
-    const result = await restoreUserAccess(identifier.trim(), video_id);
+    if (!identifier || !identifier.toString().trim()) {
+      return res.status(400).json({ error: 'Email address is required to restore access', restored: false });
+    }
+
+    const result = await restoreUserAccess(identifier.toString().trim(), video_id);
     if (!result.success) {
-      return res.status(404).json(result);
+      return res.status(404).json({ restored: false, ...result });
     }
 
     // Set secure user token cookie
@@ -1161,10 +1168,14 @@ app.post(['/api/entitlements/restore', '/api/user/restore'], async (req, res) =>
       secure: process.env.NODE_ENV === 'production'
     });
 
-    res.json(result);
+    res.json({
+      restored: true,
+      entitlement_count: result.entitlements_count,
+      ...result
+    });
   } catch (err) {
     console.error('Error restoring entitlements:', err);
-    res.status(500).json({ error: err.message || 'Failed to restore access' });
+    res.status(500).json({ error: err.message || 'Failed to restore access', restored: false });
   }
 });
 
