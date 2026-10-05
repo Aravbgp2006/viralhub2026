@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const { initDatabase, query, isPostgres } = require('./database/db');
-const { isBlobConfigured, isBlobUrl, safeDeleteBlob, handleUpload, put } = require('./services/blob');
+const { isBlobConfigured, isBlobUrl, getBlobAccess, safeDeleteBlob, handleUpload, put } = require('./services/blob');
 const {
   PLAN_PRICE,
   getPublicConfig,
@@ -282,6 +282,11 @@ app.get('/video/:id', (req, res) => {
   res.sendFile(getPublicPath('video.html'));
 });
 
+// Route alias for /js/admin.js -> public/admin.js
+app.get('/js/admin.js', (req, res) => {
+  res.sendFile(getPublicPath('admin.js'));
+});
+
 // Public API: Fetch Published Videos (Newest first, supports category & search)
 app.get('/api/videos', async (req, res) => {
   try {
@@ -484,6 +489,9 @@ app.get('/api/videos/:id/stream', async (req, res) => {
     // Remote Vercel Blob URL Streaming Proxy
     if (isBlobUrl(targetUrl) || targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
       const fetchHeaders = {};
+      if (isBlobUrl(targetUrl) && process.env.BLOB_READ_WRITE_TOKEN) {
+        fetchHeaders['Authorization'] = `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`;
+      }
       if (req.headers.range) {
         fetchHeaders['Range'] = req.headers.range;
       }
@@ -947,16 +955,72 @@ app.get('/api/admin/videos', requireAdminApi, async (req, res) => {
 
 // Check if Vercel Blob Store is configured
 app.get('/api/blob/status', (req, res) => {
+  const storeAccess = (process.env.BLOB_ACCESS || 'private').toLowerCase() === 'public' ? 'public' : 'private';
   res.json({
     enabled: isBlobConfigured(),
     isProduction: isProduction,
-    isServerless: isServerless
+    isServerless: isServerless,
+    access: storeAccess
   });
 });
 
-// Direct Client Upload Token Generation (For large video / thumbnail direct uploads)
-app.post('/api/blob/upload', requireAdminApi, async (req, res) => {
+// Secure proxy for Private Blob Store assets (thumbnails / previews)
+app.get('/api/blob/proxy', async (req, res) => {
   try {
+    const blobUrl = req.query.url;
+    if (!blobUrl || !isBlobUrl(blobUrl)) {
+      return res.status(400).json({ error: 'Valid Vercel Blob URL is required' });
+    }
+
+    const fetchHeaders = {};
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      fetchHeaders['Authorization'] = `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`;
+    }
+    if (req.headers.range) {
+      fetchHeaders['Range'] = req.headers.range;
+    }
+
+    const upstream = await fetch(blobUrl, { headers: fetchHeaders });
+    if (!upstream.ok && upstream.status !== 206) {
+      console.warn(`Upstream private blob returned ${upstream.status} for ${blobUrl}`);
+      if (blobUrl.includes('/thumbnails/')) {
+        const seedThumb = path.join(__dirname, 'uploads', 'thumbnails', 'seed-thumb-1.svg');
+        if (fs.existsSync(seedThumb)) {
+          res.setHeader('Content-Type', 'image/svg+xml');
+          return res.sendFile(seedThumb);
+        }
+      }
+      return res.status(upstream.status).json({ error: 'Blob unavailable' });
+    }
+
+    res.status(upstream.status);
+    ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control'].forEach(h => {
+      const val = upstream.headers.get(h);
+      if (val) res.setHeader(h, val);
+    });
+    if (!res.getHeader('cache-control')) {
+      res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+    }
+
+    const { Readable } = require('stream');
+    Readable.fromWeb(upstream.body).pipe(res);
+  } catch (err) {
+    console.error('Error proxying blob:', err.message);
+    res.status(502).json({ error: 'Failed to proxy blob' });
+  }
+});
+
+// Direct Client Upload Token Generation (For large video / thumbnail direct uploads)
+app.post('/api/blob/upload', async (req, res) => {
+  try {
+    // If requesting client token, authenticate the admin
+    if (req.body?.type === 'blob.generate-client-token') {
+      const token = req.cookies?.admin_token;
+      if (!verifyAuthToken(token)) {
+        return res.status(401).json({ error: 'Unauthorized: Admin authentication required.' });
+      }
+    }
+
     const jsonResponse = await handleUpload({
       body: req.body,
       request: req,
@@ -964,16 +1028,15 @@ app.post('/api/blob/upload', requireAdminApi, async (req, res) => {
       onBeforeGenerateToken: async (pathname, clientPayload, multipart) => {
         return {
           allowedContentTypes: [
-            'video/mp4', 'video/webm', 'video/quicktime',
-            'image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'
+            'video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska',
+            'image/jpeg', 'image/jpg', 'image/pjpeg', 'image/png', 'image/webp', 'image/svg+xml',
+            'application/octet-stream'
           ],
           maximumSizeInBytes: 500 * 1024 * 1024, // 500MB max video size
           addRandomSuffix: true
         };
-      },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
-        console.log('✅ Vercel Blob client upload completed:', blob.pathname);
       }
+      // Note: Omit onUploadCompleted to eliminate unnecessary webhook callbacks that cause client uploads to hang at 97%
     });
 
     return res.json(jsonResponse);
@@ -1013,7 +1076,7 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
       if (isBlobConfigured()) {
         const stream = fs.createReadStream(thumbFile.path);
         const blob = await put(`thumbnails/${thumbFile.filename}`, stream, {
-          access: 'public',
+          access: getBlobAccess(),
           token: process.env.BLOB_READ_WRITE_TOKEN,
           contentType: thumbFile.mimetype
         });
@@ -1034,7 +1097,7 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
       if (isBlobConfigured()) {
         const stream = fs.createReadStream(vidFile.path);
         const blob = await put(`videos/${vidFile.filename}`, stream, {
-          access: 'public',
+          access: getBlobAccess(),
           token: process.env.BLOB_READ_WRITE_TOKEN,
           contentType: vidFile.mimetype
         });
@@ -1138,7 +1201,7 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
       if (isBlobConfigured()) {
         const stream = fs.createReadStream(thumbFile.path);
         const blob = await put(`thumbnails/${thumbFile.filename}`, stream, {
-          access: 'public',
+          access: getBlobAccess(),
           token: process.env.BLOB_READ_WRITE_TOKEN,
           contentType: thumbFile.mimetype
         });
@@ -1162,7 +1225,7 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
       if (isBlobConfigured()) {
         const stream = fs.createReadStream(videoFile.path);
         const blob = await put(`videos/${videoFile.filename}`, stream, {
-          access: 'public',
+          access: getBlobAccess(),
           token: process.env.BLOB_READ_WRITE_TOKEN,
           contentType: videoFile.mimetype
         });

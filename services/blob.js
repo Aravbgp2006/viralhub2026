@@ -47,11 +47,20 @@ async function safeDeleteBlob(urls) {
   }
 }
 
+/**
+ * Gets the configured Blob store access mode ('private' or 'public')
+ */
+function getBlobAccess() {
+  return (process.env.BLOB_ACCESS || 'private').toLowerCase() === 'public' ? 'public' : 'private';
+}
+
 module.exports = {
   isBlobConfigured,
   isBlobUrl,
+  getBlobAccess,
   safeDeleteBlob,
   del,
   put,
   handleUpload
 };
+
