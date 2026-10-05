@@ -81,17 +81,17 @@
                   </svg>
                 </div>
                 <h2 class="lock-title">Video Locked</h2>
-                <p class="lock-subtitle">Unlock Premium Access</p>
-                <div class="lock-price-tag">₹9<span class="lock-price-period">/month</span></div>
-                <button id="btnUnlockVideo" class="btn-unlock-premium" type="button" aria-label="Unlock for ₹9/month">
+                <p class="lock-subtitle">Unlock Video Access</p>
+                <div class="lock-price-tag">₹9</div>
+                <button id="btnUnlockVideo" class="btn-unlock-premium" type="button" aria-label="Unlock for ₹9">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                   </svg>
-                  <span>Unlock for ₹9/month</span>
+                  <span>Unlock for ₹9</span>
                 </button>
                 <div class="lock-restore-row">
-                  <button id="btnOpenRestoreModal" class="btn-restore-link" type="button">Already subscribed? Restore access</button>
+                  <button id="btnOpenRestoreModal" class="btn-restore-link" type="button">Already purchased? Restore access</button>
                 </div>
               </div>
             </div>
@@ -174,21 +174,21 @@
   <!-- ====================================================================
        MODALS: RAZORPAY CHECKOUT & RESTORE ACCESS
        ==================================================================== -->
-  <!-- Modal: Razorpay Subscription Checkout -->
+  <!-- Modal: Razorpay Video Checkout -->
   <div class="modal-overlay" id="checkoutModal" role="dialog" aria-modal="true" aria-labelledby="checkoutModalTitle" style="display: none;">
     <div class="modal-card" style="max-width: 440px;">
       <div class="modal-header">
-        <h3 class="modal-title" id="checkoutModalTitle">Unlock Premium Access</h3>
+        <h3 class="modal-title" id="checkoutModalTitle">Unlock Video Access</h3>
         <button type="button" class="icon-btn" id="btnCloseCheckoutModal" aria-label="Close modal">✕</button>
       </div>
       <form id="checkoutForm" class="modal-form">
         <div class="modal-body">
           <div style="background: var(--bg-secondary); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; border: 1px solid var(--border-color);">
             <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
-              <span style="font-weight: 700; font-size: 1rem;">ViralHub Premium Plan</span>
-              <span style="font-weight: 800; font-size: 1.125rem;">₹9<span style="font-size: 0.8125rem; font-weight: normal; color: var(--text-muted);">/mo</span></span>
+              <span style="font-weight: 700; font-size: 1rem;" id="checkoutVideoLabel">Video Access</span>
+              <span style="font-weight: 800; font-size: 1.125rem;">₹9</span>
             </div>
-            <p style="font-size: 0.8125rem; color: var(--text-secondary); margin: 0;">Instant recurring monthly access to all videos. Cancel anytime.</p>
+            <p style="font-size: 0.8125rem; color: var(--text-secondary); margin: 0;">Instant access to watch this video.</p>
           </div>
 
           <div id="checkoutErrorBanner" class="form-error-banner" style="display: none; margin-bottom: 12px;"></div>
@@ -196,7 +196,7 @@
           <div class="form-group">
             <label class="form-label" for="checkoutEmail">Your Email Address *</label>
             <input type="email" id="checkoutEmail" class="form-input" placeholder="name@example.com" required autocomplete="email">
-            <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; display: block;">Used to link your subscription and restore access across devices.</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; display: block;">Used to link your purchase and restore access across devices.</span>
           </div>
 
           <div class="form-group">
@@ -208,7 +208,7 @@
         <div class="modal-footer" style="flex-direction: column; gap: 8px;">
           <button type="submit" id="btnSubmitPayment" class="btn-primary-dark" style="width: 100%; justify-content: center; height: 48px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            <span>Proceed to Payment (₹9/month)</span>
+            <span>Proceed to Payment (₹9)</span>
           </button>
           <div id="testModeNotice" style="width: 100%; text-align: center; font-size: 0.75rem; color: var(--text-muted); display: none;">
             <span>Development Mode Active · Razorpay Test Verification</span>
@@ -222,18 +222,18 @@
   <div class="modal-overlay" id="restoreModal" role="dialog" aria-modal="true" aria-labelledby="restoreModalTitle" style="display: none;">
     <div class="modal-card" style="max-width: 440px;">
       <div class="modal-header">
-        <h3 class="modal-title" id="restoreModalTitle">Restore Subscription</h3>
+        <h3 class="modal-title" id="restoreModalTitle">Restore Video Access</h3>
         <button type="button" class="icon-btn" id="btnCloseRestoreModal" aria-label="Close modal">✕</button>
       </div>
       <form id="restoreForm" class="modal-form">
         <div class="modal-body">
           <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 16px;">
-            Enter the email address or Razorpay subscription ID associated with your active ₹9/month subscription.
+            Enter the email address you used when purchasing video access to restore your videos on this device.
           </p>
           <div id="restoreErrorBanner" class="form-error-banner" style="display: none; margin-bottom: 12px;"></div>
           <div class="form-group">
-            <label class="form-label" for="restoreIdentifier">Email or Subscription ID *</label>
-            <input type="text" id="restoreIdentifier" class="form-input" placeholder="e.g. name@example.com or sub_..." required autocomplete="email">
+            <label class="form-label" for="restoreIdentifier">Your Email Address *</label>
+            <input type="email" id="restoreIdentifier" class="form-input" placeholder="name@example.com" required autocomplete="email">
           </div>
         </div>
         <div class="modal-footer">
@@ -260,9 +260,10 @@
         return;
       }
 
-      // Check for redirect query parameters from Razorpay Payment Link
+      // Check for redirect query parameters from Razorpay Payment Link or Checkout
       const urlParams = new URLSearchParams(window.location.search);
       const paymentId = urlParams.get('razorpay_payment_id');
+      const orderId = urlParams.get('razorpay_order_id');
       const paymentLinkId = urlParams.get('razorpay_payment_link_id');
       const paymentLinkRef = urlParams.get('razorpay_payment_link_reference_id');
       const paymentLinkStatus = urlParams.get('razorpay_payment_link_status');
@@ -273,15 +274,17 @@
         if (loadingIndicator) {
           loadingIndicator.style.display = 'block';
           const p = loadingIndicator.querySelector('p');
-          if (p) p.textContent = 'Verifying payment with Razorpay...';
+          if (p) p.textContent = 'Verifying payment with server...';
         }
 
         try {
-          const vRes = await fetch('/api/subscription/verify-payment', {
+          const vRes = await fetch('/api/entitlements/verify-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              video_id: currentVideoId,
               razorpay_payment_id: paymentId,
+              razorpay_order_id: orderId,
               razorpay_payment_link_id: paymentLinkId,
               razorpay_payment_link_reference_id: paymentLinkRef,
               razorpay_payment_link_status: paymentLinkStatus,
@@ -350,7 +353,7 @@
             subBadge.textContent = '🛡️ Admin Preview';
           } else {
             subBadge.className = 'badge-premium-active';
-            subBadge.textContent = '✨ Premium Active';
+            subBadge.textContent = '✨ Video Unlocked';
           }
           player.poster = secureThumbUrl;
           player.src = video.video_url || `/api/videos/${currentVideoId}/stream`;
@@ -392,7 +395,7 @@
     }
 
     // Instantly unlock video after server-side payment verification
-    function unlockVideoDirectly() {
+    function unlockVideoDirectly(streamUrl) {
       const lockOverlay = document.getElementById('videoLockOverlay');
       const player = document.getElementById('detailPlayer');
       const subBadge = document.getElementById('subStatusBadge');
@@ -400,13 +403,13 @@
       lockOverlay.style.display = 'none';
       subBadge.style.display = 'inline-flex';
       subBadge.className = 'badge-premium-active';
-      subBadge.textContent = '✨ Premium Active';
+      subBadge.textContent = '✨ Video Unlocked';
 
-      player.src = `/api/videos/${currentVideoId}/stream`;
+      player.src = streamUrl || `/api/videos/${currentVideoId}/stream`;
       player.play().catch(() => {});
 
       const toast = document.getElementById('toastNotice');
-      toast.textContent = 'Premium Unlocked! Enjoy the video.';
+      toast.textContent = 'Video Unlocked! Enjoy watching.';
       toast.classList.add('show');
       setTimeout(() => toast.classList.remove('show'), 3000);
     }
@@ -416,11 +419,11 @@
       const lockOverlay = document.getElementById('videoLockOverlay');
       if (lockOverlay && lockOverlay.style.display !== 'none' && currentVideoId) {
         try {
-          const sRes = await fetch('/api/subscription/status');
+          const sRes = await fetch(`/api/entitlements/check/${currentVideoId}`);
           if (sRes.ok) {
             const sData = await sRes.json();
-            if (sData.subscribed) {
-              unlockVideoDirectly();
+            if (sData.is_entitled) {
+              unlockVideoDirectly(sData.video_url);
             } else if (sData.is_admin) {
               initVideoPage();
             }
@@ -433,23 +436,12 @@
     const checkoutModal = document.getElementById('checkoutModal');
     const restoreModal = document.getElementById('restoreModal');
 
-    document.getElementById('btnUnlockVideo').addEventListener('click', async () => {
-      // If Razorpay Payment Link URL is configured, open it directly
-      try {
-        const configRes = await fetch('/api/subscription/config');
-        if (configRes.ok) {
-          const config = await configRes.json();
-          if (config.payment_link_url) {
-            window.location.href = config.payment_link_url;
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn('Error fetching subscription config:', err);
-      }
-
-      // Fallback: Open in-page subscription checkout modal
+    document.getElementById('btnUnlockVideo').addEventListener('click', () => {
       document.getElementById('checkoutErrorBanner').style.display = 'none';
+      const label = document.getElementById('checkoutVideoLabel');
+      if (label && activeVideoData) {
+        label.textContent = `Unlock: ${activeVideoData.title.substring(0, 32)}...`;
+      }
       checkoutModal.style.display = 'flex';
     });
 
@@ -485,34 +477,39 @@
 
       errorBanner.style.display = 'none';
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Preparing Razorpay Checkout...';
+      submitBtn.textContent = 'Preparing Payment...';
 
       try {
-        const createRes = await fetch('/api/subscription/create', {
+        const createRes = await fetch('/api/entitlements/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, phone })
+          body: JSON.stringify({ video_id: currentVideoId, email, phone })
         });
 
-        const subData = await createRes.json();
-        if (!createRes.ok || !subData.subscription_id) {
-          throw new Error(subData.error || 'Failed to initialize subscription');
+        const orderData = await createRes.json();
+        if (!createRes.ok || !orderData.order_id) {
+          throw new Error(orderData.error || 'Failed to initialize payment order');
         }
 
-        const subscriptionId = subData.subscription_id;
-        const keyId = subData.key_id;
+        const orderId = orderData.order_id;
+        const keyId = orderData.key_id;
 
-        // Check if Razorpay Checkout script is loaded
-        if (typeof window.Razorpay === 'function' && !subData.is_test_mode) {
+        // If Razorpay SDK is available and live credentials active
+        if (typeof window.Razorpay === 'function' && !orderData.is_test_mode) {
           const options = {
             key: keyId,
-            subscription_id: subscriptionId,
+            order_id: orderId,
+            amount: orderData.amount || 900,
+            currency: 'INR',
             name: 'Latest Viral Videos 2026',
-            description: 'Premium Monthly Access (₹9/month)',
+            description: `Unlock Video #${currentVideoId} (₹9)`,
             image: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>',
             prefill: {
               email: email,
               contact: phone || ''
+            },
+            notes: {
+              video_id: String(currentVideoId)
             },
             theme: {
               color: '#000000'
@@ -520,12 +517,13 @@
             handler: async function (response) {
               submitBtn.textContent = 'Verifying with server...';
               try {
-                const verifyRes = await fetch('/api/subscription/verify', {
+                const verifyRes = await fetch('/api/entitlements/verify', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
+                    video_id: currentVideoId,
                     razorpay_payment_id: response.razorpay_payment_id,
-                    razorpay_subscription_id: response.razorpay_subscription_id,
+                    razorpay_order_id: response.razorpay_order_id,
                     razorpay_signature: response.razorpay_signature,
                     email,
                     phone
@@ -538,19 +536,25 @@
                 }
 
                 checkoutModal.style.display = 'none';
-                unlockVideoDirectly();
+                unlockVideoDirectly(verifyData.video_url);
               } catch (vErr) {
                 errorBanner.textContent = vErr.message;
                 errorBanner.style.display = 'block';
               } finally {
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Proceed to Payment (₹9/month)';
+                submitBtn.innerHTML = `
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                  <span>Proceed to Payment (₹9)</span>
+                `;
               }
             },
             modal: {
               ondismiss: function () {
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Proceed to Payment (₹9/month)';
+                submitBtn.innerHTML = `
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                  <span>Proceed to Payment (₹9)</span>
+                `;
               }
             }
           };
@@ -559,13 +563,14 @@
           rzp.open();
         } else {
           // Development / Test mode execution
-          submitBtn.textContent = 'Verifying Test Subscription...';
-          const verifyRes = await fetch('/api/subscription/verify', {
+          submitBtn.textContent = 'Verifying Server Entitlement...';
+          const verifyRes = await fetch('/api/entitlements/verify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              video_id: currentVideoId,
               razorpay_payment_id: 'pay_test_' + Date.now(),
-              razorpay_subscription_id: subscriptionId,
+              razorpay_order_id: orderId,
               razorpay_signature: 'sig_test_valid',
               email,
               phone
@@ -574,11 +579,11 @@
 
           const verifyData = await verifyRes.json();
           if (!verifyRes.ok || !verifyData.success) {
-            throw new Error(verifyData.error || 'Test subscription verification failed');
+            throw new Error(verifyData.error || 'Server-side payment verification failed');
           }
 
           checkoutModal.style.display = 'none';
-          unlockVideoDirectly();
+          unlockVideoDirectly(verifyData.video_url);
         }
       } catch (err) {
         errorBanner.textContent = err.message || 'Payment initiation failed';
@@ -587,7 +592,7 @@
         submitBtn.disabled = false;
         submitBtn.innerHTML = `
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          <span>Proceed to Payment (₹9/month)</span>
+          <span>Proceed to Payment (₹9)</span>
         `;
       }
     });
@@ -601,22 +606,27 @@
 
       errorBanner.style.display = 'none';
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Checking Subscription...';
+      submitBtn.textContent = 'Restoring Purchases...';
 
       try {
-        const res = await fetch('/api/subscription/restore', {
+        const res = await fetch('/api/entitlements/restore', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier })
+          body: JSON.stringify({ identifier, video_id: currentVideoId })
         });
 
         const data = await res.json();
         if (!res.ok || !data.success) {
-          throw new Error(data.error || 'No active subscription found');
+          throw new Error(data.message || data.error || 'No active video purchases found');
         }
 
-        restoreModal.style.display = 'none';
-        unlockVideoDirectly();
+        if (data.entitled_for_current) {
+          restoreModal.style.display = 'none';
+          unlockVideoDirectly(data.video_url);
+        } else {
+          errorBanner.textContent = `Account restored (${data.entitlements_count} purchased video(s)), but Video #${currentVideoId} has not been purchased yet.`;
+          errorBanner.style.display = 'block';
+        }
       } catch (err) {
         errorBanner.textContent = err.message;
         errorBanner.style.display = 'block';

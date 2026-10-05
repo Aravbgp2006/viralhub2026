@@ -283,6 +283,28 @@ async function initDatabase() {
           CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions (status);
           CREATE INDEX IF NOT EXISTS idx_subscriptions_razorpay_sub_id ON subscriptions (razorpay_subscription_id);
           CREATE INDEX IF NOT EXISTS idx_subscriptions_customer_email ON subscriptions (customer_email);
+
+          -- Create PostgreSQL entitlements table for per-video access
+          CREATE TABLE IF NOT EXISTS entitlements (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            video_id INTEGER NOT NULL,
+            customer_email TEXT,
+            customer_phone TEXT,
+            razorpay_payment_id TEXT,
+            razorpay_order_id TEXT,
+            amount INTEGER DEFAULT 900,
+            status VARCHAR(50) NOT NULL DEFAULT 'active',
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unique_user_video_entitlement UNIQUE (user_id, video_id)
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_entitlements_user_video ON entitlements (user_id, video_id);
+          CREATE INDEX IF NOT EXISTS idx_entitlements_email_video ON entitlements (customer_email, video_id);
+          CREATE INDEX IF NOT EXISTS idx_entitlements_video_id ON entitlements (video_id);
+          CREATE INDEX IF NOT EXISTS idx_entitlements_payment_id ON entitlements (razorpay_payment_id);
+          CREATE INDEX IF NOT EXISTS idx_entitlements_status ON entitlements (status);
         `);
         break;
       } catch (err) {
@@ -292,7 +314,7 @@ async function initDatabase() {
       }
     }
 
-    console.log('✅ Neon PostgreSQL `videos` and `subscriptions` tables and indexes ready.');
+    console.log('✅ Neon PostgreSQL `videos`, `subscriptions`, and `entitlements` tables and indexes ready.');
 
     // Check if initial seeding is needed
     const countRes = await query.get('SELECT COUNT(*)::int AS total FROM videos');
@@ -334,6 +356,27 @@ async function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS entitlements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        video_id INTEGER NOT NULL,
+        customer_email TEXT,
+        customer_phone TEXT,
+        razorpay_payment_id TEXT,
+        razorpay_order_id TEXT,
+        amount INTEGER DEFAULT 900,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, video_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_entitlements_user_video ON entitlements (user_id, video_id);
+      CREATE INDEX IF NOT EXISTS idx_entitlements_email_video ON entitlements (customer_email, video_id);
+      CREATE INDEX IF NOT EXISTS idx_entitlements_video_id ON entitlements (video_id);
+      CREATE INDEX IF NOT EXISTS idx_entitlements_payment_id ON entitlements (razorpay_payment_id);
+      CREATE INDEX IF NOT EXISTS idx_entitlements_status ON entitlements (status);
     `;
 
     await query.raw(createTableSql);
