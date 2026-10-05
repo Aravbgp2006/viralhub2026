@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>Latest Viral Videos 2026 — Trending & Viral Video Platform</title>
+  <meta name="description" content="Discover the latest viral videos of 2026. Watch trending, most viewed, and breaking new video content on our responsive video platform prototype.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>">
+</head>
+<body>
+
+  <!-- ====================================================================
+       PAGE 1: AGE GATE MODAL / SCREEN
+       Clean, minimal, centered, premium black-and-white aesthetic.
+       Both buttons navigate to the SAME homepage!
+       ==================================================================== -->
+  <section id="ageGateOverlay" class="age-gate-container" role="dialog" aria-modal="true" aria-labelledby="ageGateHeading">
+    <script>
+      (function() {
+        try {
+          if (localStorage.getItem('ageGatePassed') === 'true' || /(?:^|;\s*)ageGatePassed=true/.test(document.cookie)) {
+            document.getElementById('ageGateOverlay').classList.add('hidden');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <div class="age-gate-card">
+      <div class="age-gate-badge" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+        </svg>
+      </div>
+
+      <h1 id="ageGateHeading" class="age-gate-title">Latest Viral Videos 2026</h1>
+      <span class="age-gate-subheading">18+ ONLY</span>
+
+      <p class="age-gate-desc">
+        By entering this website, you confirm that you are 18 years of age or older.
+      </p>
+
+      <div class="age-gate-actions">
+        <button id="btnAgeOver18" class="age-gate-btn" type="button" aria-label="Enter site confirming 18 years or older">
+          I AM 18+
+        </button>
+        <button id="btnAgeUnder18" class="age-gate-btn" type="button" aria-label="Enter site under 18 years">
+          I AM UNDER 18
+        </button>
+      </div>
+
+      <p class="age-gate-footer-note">
+        Content verification gate · Prototype demo
+      </p>
+    </div>
+  </section>
+
+  <!-- ====================================================================
+       SITE APP SHELL
+       ==================================================================== -->
+  <div class="site-wrapper" id="siteWrapper">
+
+    <!-- Top Header -->
+    <header class="site-header" id="siteHeader">
+      <div class="header-inner">
+        <!-- Brand Logo on Left -->
+        <a href="/" id="siteBrand" class="site-brand" aria-label="Latest Viral Videos 2026 Homepage">
+          <div class="brand-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+          </div>
+          <span>Latest Viral Videos</span>
+          <span class="brand-year">2026</span>
+        </a>
+
+        <!-- Desktop Search Bar -->
+        <div class="header-search">
+          <div class="search-input-wrapper">
+            <svg class="search-icon-inline" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="search" id="desktopSearchInput" class="header-search-input" placeholder="Search viral videos..." aria-label="Search viral videos">
+            <button id="desktopSearchClear" class="search-clear-btn" type="button" aria-label="Clear search">✕</button>
+          </div>
+        </div>
+
+        <!-- Header Actions on Right -->
+        <div class="header-actions">
+          <!-- Mobile Search Trigger -->
+          <button id="mobileSearchTrigger" class="icon-btn mobile-search-trigger" type="button" aria-label="Open search">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </button>
+
+          <!-- Desktop Navigation -->
+          <nav class="header-nav" aria-label="Primary Navigation">
+            <a href="/" class="nav-link" id="navLinkHome">Home</a>
+            <a href="/#trending" class="nav-link" id="navLinkTrending">Trending</a>
+          </nav>
+
+          <!-- Mobile Hamburger Trigger -->
+          <button id="mobileMenuTrigger" class="icon-btn mobile-menu-trigger" type="button" aria-label="Open menu">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Category Navigation Bar -->
+    <nav class="category-nav-section" id="categoryNavSection" aria-label="Video Categories">
+      <div class="category-nav-inner" id="categoryPillList">
+        <button class="category-pill active" data-category="latest" type="button">
+          <span>LATEST</span>
+          <span class="category-count" id="countLatest"></span>
+        </button>
+        <button class="category-pill" data-category="trending" type="button">
+          <span>TRENDING</span>
+          <span class="category-count" id="countTrending"></span>
+        </button>
+        <button class="category-pill" data-category="most-viewed" type="button">
+          <span>MOST VIEWED</span>
+          <span class="category-count" id="countMostViewed"></span>
+        </button>
+        <button class="category-pill" data-category="new" type="button">
+          <span>NEW</span>
+          <span class="category-count" id="countNew"></span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Main Content Container -->
+    <main class="main-content" id="mainContent">
+
+      <!-- ====================================================================
+           PAGE 2: HOMEPAGE VIEW (Dynamic Videos from SQLite)
+           ==================================================================== -->
+      <section class="homepage-view" id="homepageView" aria-label="Video Grid Feed">
+        <div class="feed-header">
+          <div class="feed-title-wrapper">
+            <h2 class="feed-title" id="feedTitleHeading">Latest Videos</h2>
+            <span class="feed-subtitle" id="feedSubtitle">Sorted from newest to oldest</span>
+          </div>
+          <div class="feed-count" id="feedCounter">Loading videos from database...</div>
+        </div>
+
+        <!-- Responsive Video Grid: Dynamically populated from SQLite -->
+        <div class="video-grid" id="videoGrid" role="feed" aria-busy="true">
+          <!-- Video cards rendered dynamically from /api/videos -->
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           PAGE 3: VIDEO DETAIL VIEW (Modal / Dynamic Route)
+           ==================================================================== -->
+      <section class="video-detail-view" id="videoDetailView" aria-label="Video Player Page">
+        <div class="detail-back-bar">
+          <button id="btnBackToHome" class="btn-back" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            Back to Videos
+          </button>
+        </div>
+
+        <div class="detail-layout-grid">
+          <!-- Primary Column: Player + Info -->
+          <div class="detail-primary-col">
+            <!-- Player Container -->
+            <div class="player-container" id="playerContainer">
+              <video id="html5VideoPlayer" class="player-video" playsinline preload="metadata" poster="" controls>
+                <!-- Video source dynamically loaded -->
+              </video>
+              <canvas id="playerCanvas" class="player-canvas-layer"></canvas>
+            </div>
+
+            <!-- Video Information Details -->
+            <div class="detail-info-box">
+              <h2 id="detailVideoTitle" class="detail-video-title">Video Title</h2>
+
+              <div class="detail-actions-bar">
+                <div class="detail-channel-block">
+                  <div class="detail-avatar-large" id="detailChannelAvatar">VH</div>
+                  <div>
+                    <div class="detail-channel-name">
+                      <span id="detailChannelName">ViralHub Creator</span>
+                      <svg class="channel-check-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                      </svg>
+                    </div>
+                    <div class="detail-channel-subs" id="detailChannelSubs">Verified Channel</div>
+                  </div>
+                  <button id="btnSubscribe" class="btn-subscribe" type="button">Subscribe</button>
+                </div>
+
+                <div class="detail-buttons-group">
+                  <button id="btnLikeVideo" class="action-btn" type="button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                    </svg>
+                    <span id="likeCountDisplay">Like</span>
+                  </button>
+
+                  <button id="btnShareVideo" class="action-btn" type="button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="18" cy="5" r="3"></circle>
+                      <circle cx="6" cy="12" r="3"></circle>
+                      <circle cx="18" cy="19" r="3"></circle>
+                      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                    <span>Share</span>
+                  </button>
+
+                  <button id="btnSaveVideo" class="action-btn" type="button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span>Save</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Description card -->
+              <div class="detail-desc-card">
+                <div class="desc-stats-line">
+                  <span id="detailViewCount">0 views</span> · <span id="detailUploadDate">Recent</span> · <span id="detailBadge">PUBLISHED</span>
+                </div>
+                <p id="detailDescription" class="desc-text">Video description content...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Secondary Column: Related Videos Feed -->
+          <aside class="detail-sidebar" aria-label="Related Videos">
+            <h3 class="related-title">Up Next</h3>
+            <div class="related-video-list" id="relatedVideoList">
+              <!-- Related video cards rendered dynamically -->
+            </div>
+          </aside>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Site Footer -->
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <p class="footer-text">
+          © 2026 Latest Viral Videos · Powered by SQLite CMS
+        </p>
+        <div class="footer-links">
+          <a href="/" class="footer-link">Home</a>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Mobile Drawer Menu -->
+  <div class="drawer-backdrop" id="drawerBackdrop">
+    <div class="mobile-drawer" id="mobileDrawer">
+      <div class="drawer-header">
+        <span class="drawer-title">Navigation</span>
+        <button id="btnCloseDrawer" class="icon-btn" type="button" aria-label="Close menu">✕</button>
+      </div>
+      <div class="drawer-links">
+        <a href="/" class="drawer-link" id="drawerLinkHome">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Home Feed
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Search Modal -->
+  <div class="search-modal" id="searchModal">
+    <div class="search-modal-bar">
+      <input type="search" id="modalSearchInput" class="modal-search-input" placeholder="Search 2026 viral videos..." aria-label="Search videos">
+      <button id="btnCloseSearchModal" class="icon-btn" type="button" aria-label="Close search">✕</button>
+    </div>
+    <div id="modalSearchResults" class="modal-search-results"></div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toastNotice" class="toast-notice" role="status" aria-live="polite">
+    Link copied to clipboard!
+  </div>
+
+  <!-- Dynamic Application Script (Fetches from SQLite API) -->
+  <script src="app.js"></script>
+</body>
+</html>

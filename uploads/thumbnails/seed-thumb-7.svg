@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 225" width="100%" height="100%">
+        <defs>
+          <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#111111" />
+            <stop offset="50%" stop-color="#222222" />
+            <stop offset="100%" stop-color="#000000" />
+          </linearGradient>
+        </defs>
+        <rect width="400" height="225" fill="url(#bgGrad)"/>
+        <circle cx="200" cy="112" r="50" fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.4"/>
+        <polygon points="190,95 220,112 190,130" fill="#ffffff" opacity="0.9"/>
+        <text x="200" y="180" fill="#ffffff" font-size="12" font-family="sans-serif" font-weight="700" text-anchor="middle" letter-spacing="1">VIRAL 2026</text>
+        <text x="200" y="200" fill="#888888" font-size="9" font-family="monospace" text-anchor="middle">DEMO CONTENT #7</text>
+      </svg>

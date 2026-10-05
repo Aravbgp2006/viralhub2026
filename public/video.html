@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>Watch Video — Latest Viral Videos 2026</title>
+  <meta name="description" content="Watch viral video on ViralHub 2026 video platform.">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>">
+  <script defer src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+
+  <!-- Site App Shell -->
+  <div class="site-wrapper">
+    <!-- Header -->
+    <header class="site-header">
+      <div class="header-inner">
+        <a href="/" class="site-brand">
+          <div class="brand-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+          </div>
+          <span>Latest Viral Videos</span>
+          <span class="brand-year">2026</span>
+        </a>
+
+        <div class="header-actions">
+          <a href="/" class="btn-back">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            Home
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="main-content" style="padding-top: 24px;">
+      <div class="detail-back-bar">
+        <a href="/" class="btn-back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          Back to Homepage
+        </a>
+      </div>
+
+      <!-- Loading / Error State -->
+      <div id="loadingIndicator" style="text-align: center; padding: 60px 20px;">
+        <p style="font-size: 1.125rem; font-weight: 600; color: var(--text-secondary);">Loading video player...</p>
+      </div>
+
+      <div id="errorState" class="empty-state" style="display: none;">
+        <h3 class="empty-state-title">Video Not Found</h3>
+        <p class="empty-state-desc" id="errorMessage">This video may be unpublished or does not exist.</p>
+        <a href="/" class="btn-primary-dark" style="margin: 0 auto; display: inline-flex;">Return to Homepage</a>
+      </div>
+
+      <!-- Main Video Detail Layout -->
+      <div id="videoContent" class="detail-layout-grid" style="display: none;">
+        <!-- Left: Primary Player & Info -->
+        <div class="detail-primary-col">
+          <div class="player-container" id="playerWrapper">
+            <video id="detailPlayer" class="player-video" controls playsinline preload="metadata">
+              <!-- Source loaded via JS -->
+            </video>
+
+            <!-- Locked Paywall Overlay (Displayed before active subscription) -->
+            <div id="videoLockOverlay" class="player-lock-overlay" style="display: none;">
+              <div class="player-lock-backdrop" id="playerLockBackdrop"></div>
+              <div class="player-lock-content">
+                <div class="lock-icon-circle" aria-hidden="true">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                </div>
+                <h2 class="lock-title">Video Locked</h2>
+                <p class="lock-subtitle">Unlock Premium Access</p>
+                <div class="lock-price-tag">₹9<span class="lock-price-period">/month</span></div>
+                <button id="btnUnlockVideo" class="btn-unlock-premium" type="button" aria-label="Unlock for ₹9/month">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                  <span>Unlock for ₹9/month</span>
+                </button>
+                <div class="lock-restore-row">
+                  <button id="btnOpenRestoreModal" class="btn-restore-link" type="button">Already subscribed? Restore access</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="detail-info-box">
+            <h1 id="videoTitle" class="detail-video-title">Video Title</h1>
+
+            <div class="detail-actions-bar">
+              <div class="detail-channel-block">
+                <div class="detail-avatar-large" id="channelAvatar">VH</div>
+                <div>
+                  <div class="detail-channel-name">
+                    <span id="channelName">ViralHub Creator</span>
+                    <svg class="channel-check-icon" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                  </div>
+                  <div class="detail-channel-subs" id="channelCategory">Verified Channel</div>
+                </div>
+                <button id="btnSubscribe" class="btn-subscribe" type="button">Subscribe</button>
+              </div>
+
+              <div class="detail-buttons-group">
+                <button id="btnLike" class="action-btn" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                  </svg>
+                  <span id="likeCount">Like</span>
+                </button>
+                <button id="btnShare" class="action-btn" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="18" cy="5" r="3"></circle>
+                    <circle cx="6" cy="12" r="3"></circle>
+                    <circle cx="18" cy="19" r="3"></circle>
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                  </svg>
+                  <span>Share</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Description Card -->
+            <div class="detail-desc-card">
+              <div class="desc-stats-line">
+                <span id="videoViews">0 views</span> · <span id="videoDate">Recently</span> · <span id="categoryBadge" class="category-tag">LATEST</span>
+                <span id="subStatusBadge" class="badge-premium-active" style="display: none; margin-left: 8px;">✨ Premium Active</span>
+              </div>
+              <p id="videoDescription" class="desc-text">Description...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Related Videos Sidebar -->
+        <aside class="detail-sidebar" aria-label="Related Videos">
+          <h3 class="related-title">Up Next</h3>
+          <div class="related-video-list" id="relatedList">
+            <!-- Dynamic related videos -->
+          </div>
+        </aside>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <p class="footer-text">
+          © 2026 Latest Viral Videos · Powered by SQLite CMS
+        </p>
+        <div class="footer-links">
+          <a href="/" class="footer-link">Home</a>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div id="toastNotice" class="toast-notice" role="status">Link copied!</div>
+
+  <!-- ====================================================================
+       MODALS: RAZORPAY CHECKOUT & RESTORE ACCESS
+       ==================================================================== -->
+  <!-- Modal: Razorpay Subscription Checkout -->
+  <div class="modal-overlay" id="checkoutModal" role="dialog" aria-modal="true" aria-labelledby="checkoutModalTitle" style="display: none;">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="checkoutModalTitle">Unlock Premium Access</h3>
+        <button type="button" class="icon-btn" id="btnCloseCheckoutModal" aria-label="Close modal">✕</button>
+      </div>
+      <form id="checkoutForm" class="modal-form">
+        <div class="modal-body">
+          <div style="background: var(--bg-secondary); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; border: 1px solid var(--border-color);">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+              <span style="font-weight: 700; font-size: 1rem;">ViralHub Premium Plan</span>
+              <span style="font-weight: 800; font-size: 1.125rem;">₹9<span style="font-size: 0.8125rem; font-weight: normal; color: var(--text-muted);">/mo</span></span>
+            </div>
+            <p style="font-size: 0.8125rem; color: var(--text-secondary); margin: 0;">Instant recurring monthly access to all videos. Cancel anytime.</p>
+          </div>
+
+          <div id="checkoutErrorBanner" class="form-error-banner" style="display: none; margin-bottom: 12px;"></div>
+
+          <div class="form-group">
+            <label class="form-label" for="checkoutEmail">Your Email Address *</label>
+            <input type="email" id="checkoutEmail" class="form-input" placeholder="name@example.com" required autocomplete="email">
+            <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; display: block;">Used to link your subscription and restore access across devices.</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="checkoutPhone">Mobile Number (Optional)</label>
+            <input type="tel" id="checkoutPhone" class="form-input" placeholder="+91 98765 43210" autocomplete="tel">
+          </div>
+        </div>
+
+        <div class="modal-footer" style="flex-direction: column; gap: 8px;">
+          <button type="submit" id="btnSubmitPayment" class="btn-primary-dark" style="width: 100%; justify-content: center; height: 48px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <span>Proceed to Payment (₹9/month)</span>
+          </button>
+          <div id="testModeNotice" style="width: 100%; text-align: center; font-size: 0.75rem; color: var(--text-muted); display: none;">
+            <span>Development Mode Active · Razorpay Test Verification</span>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Restore Access -->
+  <div class="modal-overlay" id="restoreModal" role="dialog" aria-modal="true" aria-labelledby="restoreModalTitle" style="display: none;">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="restoreModalTitle">Restore Subscription</h3>
+        <button type="button" class="icon-btn" id="btnCloseRestoreModal" aria-label="Close modal">✕</button>
+      </div>
+      <form id="restoreForm" class="modal-form">
+        <div class="modal-body">
+          <p style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 16px;">
+            Enter the email address or Razorpay subscription ID associated with your active ₹9/month subscription.
+          </p>
+          <div id="restoreErrorBanner" class="form-error-banner" style="display: none; margin-bottom: 12px;"></div>
+          <div class="form-group">
+            <label class="form-label" for="restoreIdentifier">Email or Subscription ID *</label>
+            <input type="text" id="restoreIdentifier" class="form-input" placeholder="e.g. name@example.com or sub_..." required autocomplete="email">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-modal-cancel" id="btnCancelRestore">Cancel</button>
+          <button type="submit" id="btnSubmitRestore" class="btn-primary-dark">Restore Access</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let currentVideoId = null;
+    let isVideoLocked = false;
+    let activeVideoData = null;
+
+    // Fetch video detail based on path /video/:id
+    async function initVideoPage() {
+      const cleanPath = window.location.pathname.replace(/\/+$/, '');
+      const pathParts = cleanPath.split('/');
+      currentVideoId = pathParts[pathParts.length - 1];
+
+      if (!currentVideoId || isNaN(currentVideoId)) {
+        showError('Invalid video ID specified.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/videos/${currentVideoId}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            showError('Video not found or unpublished.');
+          } else {
+            showError('Failed to load video details.');
+          }
+          return;
+        }
+
+        const data = await res.json();
+        const video = data.video;
+        const related = data.related || [];
+        activeVideoData = video;
+
+        // Render Video Details
+        document.title = `${video.title} — Latest Viral Videos 2026`;
+        document.getElementById('videoTitle').textContent = video.title;
+        document.getElementById('channelAvatar').textContent = (video.title || 'V').substring(0, 2).toUpperCase();
+        document.getElementById('videoViews').textContent = formatViews(video.views);
+        document.getElementById('videoViews').title = `${Number(video.views || 0).toLocaleString()} views`;
+        document.getElementById('videoDate').textContent = formatDate(video.created_at);
+        document.getElementById('categoryBadge').textContent = (video.category || 'LATEST').toUpperCase();
+        document.getElementById('videoDescription').textContent = video.description || 'No description provided.';
+
+        const player = document.getElementById('detailPlayer');
+        const lockOverlay = document.getElementById('videoLockOverlay');
+        const lockBackdrop = document.getElementById('playerLockBackdrop');
+        const subBadge = document.getElementById('subStatusBadge');
+
+        isVideoLocked = Boolean(video.is_locked);
+
+        if (isVideoLocked) {
+          // Locked state: show paywall overlay, obscure preview with blurred thumbnail
+          const thumbUrl = video.thumbnail_url || video.thumbnail_path || '/uploads/thumbnails/seed-thumb-1.svg';
+          lockBackdrop.style.backgroundImage = `url('${thumbUrl}')`;
+          lockOverlay.style.display = 'flex';
+          subBadge.style.display = 'none';
+
+          // Ensure player cannot play and has no protected URL loaded
+          player.removeAttribute('src');
+          player.load();
+        } else {
+          // Unlocked state: hide overlay and load authorized stream
+          lockOverlay.style.display = 'none';
+          subBadge.style.display = 'inline-flex';
+          player.poster = video.thumbnail_url || video.thumbnail_path;
+          player.src = video.video_url || `/api/videos/${currentVideoId}/stream`;
+        }
+
+        // Render Related Videos
+        const relatedList = document.getElementById('relatedList');
+        relatedList.innerHTML = '';
+        if (related.length === 0) {
+          relatedList.innerHTML = '<p style="color: var(--text-muted); font-size: 0.875rem;">No other videos available.</p>';
+        } else {
+          related.forEach(rel => {
+            const item = document.createElement('a');
+            item.href = `/video/${rel.id}`;
+            item.className = 'related-card';
+            item.innerHTML = `
+              <div class="related-thumb-box">
+                <img class="related-thumb" src="${rel.thumbnail_path}" alt="${rel.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
+                <span class="related-duration">${rel.duration || '03:45'}</span>
+              </div>
+              <div class="related-info">
+                <h4 class="related-video-title">${rel.title}</h4>
+                <div class="related-channel">ViralHub · ${(rel.category || 'latest').toUpperCase()}</div>
+                <div class="related-meta">${formatViews(rel.views)} · ${formatDate(rel.created_at)}</div>
+              </div>
+            `;
+            relatedList.appendChild(item);
+          });
+        }
+
+        document.getElementById('loadingIndicator').style.display = 'none';
+        document.getElementById('videoContent').style.display = 'grid';
+
+      } catch (err) {
+        console.error('Error fetching video detail:', err);
+        showError('Network error while connecting to server.');
+      }
+    }
+
+    // Instantly unlock video after server-side payment verification
+    function unlockVideoDirectly() {
+      const lockOverlay = document.getElementById('videoLockOverlay');
+      const player = document.getElementById('detailPlayer');
+      const subBadge = document.getElementById('subStatusBadge');
+
+      lockOverlay.style.display = 'none';
+      subBadge.style.display = 'inline-flex';
+      subBadge.textContent = '✨ Premium Active';
+
+      player.src = `/api/videos/${currentVideoId}/stream`;
+      player.play().catch(() => {});
+
+      const toast = document.getElementById('toastNotice');
+      toast.textContent = 'Premium Unlocked! Enjoy the video.';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // Modal helpers
+    const checkoutModal = document.getElementById('checkoutModal');
+    const restoreModal = document.getElementById('restoreModal');
+
+    document.getElementById('btnUnlockVideo').addEventListener('click', () => {
+      document.getElementById('checkoutErrorBanner').style.display = 'none';
+      checkoutModal.style.display = 'flex';
+    });
+
+    document.getElementById('btnCloseCheckoutModal').addEventListener('click', () => {
+      checkoutModal.style.display = 'none';
+    });
+
+    document.getElementById('btnOpenRestoreModal').addEventListener('click', () => {
+      document.getElementById('restoreErrorBanner').style.display = 'none';
+      restoreModal.style.display = 'flex';
+    });
+
+    document.getElementById('btnCloseRestoreModal').addEventListener('click', () => {
+      restoreModal.style.display = 'none';
+    });
+
+    document.getElementById('btnCancelRestore').addEventListener('click', () => {
+      restoreModal.style.display = 'none';
+    });
+
+    window.addEventListener('click', (e) => {
+      if (e.target === checkoutModal) checkoutModal.style.display = 'none';
+      if (e.target === restoreModal) restoreModal.style.display = 'none';
+    });
+
+    // Checkout Form Submission & Razorpay Integration
+    document.getElementById('checkoutForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('checkoutEmail').value.trim();
+      const phone = document.getElementById('checkoutPhone').value.trim();
+      const errorBanner = document.getElementById('checkoutErrorBanner');
+      const submitBtn = document.getElementById('btnSubmitPayment');
+
+      errorBanner.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Preparing Razorpay Checkout...';
+
+      try {
+        const createRes = await fetch('/api/subscription/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, phone })
+        });
+
+        const subData = await createRes.json();
+        if (!createRes.ok || !subData.subscription_id) {
+          throw new Error(subData.error || 'Failed to initialize subscription');
+        }
+
+        const subscriptionId = subData.subscription_id;
+        const keyId = subData.key_id;
+
+        // Check if Razorpay Checkout script is loaded
+        if (typeof window.Razorpay === 'function' && !subData.is_test_mode) {
+          const options = {
+            key: keyId,
+            subscription_id: subscriptionId,
+            name: 'Latest Viral Videos 2026',
+            description: 'Premium Monthly Access (₹9/month)',
+            image: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>',
+            prefill: {
+              email: email,
+              contact: phone || ''
+            },
+            theme: {
+              color: '#000000'
+            },
+            handler: async function (response) {
+              submitBtn.textContent = 'Verifying with server...';
+              try {
+                const verifyRes = await fetch('/api/subscription/verify', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_subscription_id: response.razorpay_subscription_id,
+                    razorpay_signature: response.razorpay_signature,
+                    email,
+                    phone
+                  })
+                });
+
+                const verifyData = await verifyRes.json();
+                if (!verifyRes.ok || !verifyData.success) {
+                  throw new Error(verifyData.error || 'Server-side payment verification failed');
+                }
+
+                checkoutModal.style.display = 'none';
+                unlockVideoDirectly();
+              } catch (vErr) {
+                errorBanner.textContent = vErr.message;
+                errorBanner.style.display = 'block';
+              } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Proceed to Payment (₹9/month)';
+              }
+            },
+            modal: {
+              ondismiss: function () {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Proceed to Payment (₹9/month)';
+              }
+            }
+          };
+
+          const rzp = new window.Razorpay(options);
+          rzp.open();
+        } else {
+          // Development / Test mode execution
+          submitBtn.textContent = 'Verifying Test Subscription...';
+          const verifyRes = await fetch('/api/subscription/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_payment_id: 'pay_test_' + Date.now(),
+              razorpay_subscription_id: subscriptionId,
+              razorpay_signature: 'sig_test_valid',
+              email,
+              phone
+            })
+          });
+
+          const verifyData = await verifyRes.json();
+          if (!verifyRes.ok || !verifyData.success) {
+            throw new Error(verifyData.error || 'Test subscription verification failed');
+          }
+
+          checkoutModal.style.display = 'none';
+          unlockVideoDirectly();
+        }
+      } catch (err) {
+        errorBanner.textContent = err.message || 'Payment initiation failed';
+        errorBanner.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          <span>Proceed to Payment (₹9/month)</span>
+        `;
+      }
+    });
+
+    // Restore Access Form Submission
+    document.getElementById('restoreForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const identifier = document.getElementById('restoreIdentifier').value.trim();
+      const errorBanner = document.getElementById('restoreErrorBanner');
+      const submitBtn = document.getElementById('btnSubmitRestore');
+
+      errorBanner.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Checking Subscription...';
+
+      try {
+        const res = await fetch('/api/subscription/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'No active subscription found');
+        }
+
+        restoreModal.style.display = 'none';
+        unlockVideoDirectly();
+      } catch (err) {
+        errorBanner.textContent = err.message;
+        errorBanner.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Restore Access';
+      }
+    });
+
+    function formatViews(views) {
+      const num = Number(views) || 0;
+      if (num >= 1000000) {
+        const millions = (num / 1000000).toFixed(2).replace(/\.?0+$/, '');
+        return `${millions}M views`;
+      }
+      if (num >= 1000) {
+        const thousands = (num / 1000).toFixed(2).replace(/\.?0+$/, '');
+        return `${thousands}K views`;
+      }
+      return `${num.toLocaleString()} views`;
+    }
+
+    function showError(msg) {
+      document.getElementById('loadingIndicator').style.display = 'none';
+      document.getElementById('errorMessage').textContent = msg;
+      document.getElementById('errorState').style.display = 'block';
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return 'Recently';
+      const date = new Date(dateStr);
+      const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+      if (diff < 60) return 'Just now';
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      return date.toLocaleDateString();
+    }
+
+    // Interactive buttons
+    let liked = false;
+    document.getElementById('btnLike').addEventListener('click', function () {
+      liked = !liked;
+      this.classList.toggle('active', liked);
+      document.getElementById('likeCount').textContent = liked ? 'Liked' : 'Like';
+    });
+
+    document.getElementById('btnShare').addEventListener('click', function () {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(window.location.href);
+      }
+      const toast = document.getElementById('toastNotice');
+      toast.textContent = 'Link copied to clipboard!';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2400);
+    });
+
+    let subscribed = false;
+    document.getElementById('btnSubscribe').addEventListener('click', function () {
+      subscribed = !subscribed;
+      this.classList.toggle('subscribed', subscribed);
+      this.textContent = subscribed ? 'Subscribed' : 'Subscribe';
+    });
+
+    initVideoPage();
+  </script>
+</body>
+</html>
