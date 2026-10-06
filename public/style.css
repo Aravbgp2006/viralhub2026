@@ -3203,66 +3203,67 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 
 /* ==========================================================================
-   FEATURED SHORT VIDEOS HOMEPAGE CAROUSEL (CLEAN, MINIMAL, ONLY VIDEO)
+/* ==========================================================================
+   FEATURED SHORT VIDEOS HOMEPAGE CAROUSEL (9:16 PORTRAIT FLOATING FRAME)
    ========================================================================== */
 .featured-carousel-section {
   width: 100%;
-  max-width: 620px;
-  margin: 6px auto 14px auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 6px auto 16px auto;
   padding: 0 16px;
   box-sizing: border-box;
 }
 
 .featured-carousel-container {
   width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   position: relative;
 }
 
+/* Exact 9:16 Floating Portrait Carousel Frame */
 .featured-viewport-wrapper {
   position: relative;
-  width: 100%;
-  height: clamp(240px, 44vw, 330px);
-  border-radius: var(--radius-lg);
+  width: min(78vw, 340px);
+  aspect-ratio: 9 / 16;
+  height: auto;
+  border-radius: 20px;
   overflow: hidden;
   background: #000000;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.3), 0 8px 16px -4px rgba(0, 0, 0, 0.15);
   border: 1px solid rgba(0, 0, 0, 0.08);
+  user-select: none;
+  touch-action: pan-y; /* Preserves smooth vertical page scroll, captures horizontal swipe */
+  margin: 0 auto;
 }
 
 .featured-track {
-  display: flex;
   width: 100%;
   height: 100%;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  touch-action: pan-y; /* Preserves smooth vertical page scrolling */
-}
-
-.featured-track::-webkit-scrollbar {
-  display: none;
+  position: relative;
+  overflow: hidden;
 }
 
 .featured-slide {
-  flex: 0 0 100%;
-  min-width: 100%;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-  position: relative;
   overflow: hidden;
   background: #000000;
   user-select: none;
-  cursor: grab;
+  display: none;
+  will-change: transform;
 }
 
-.featured-slide:active {
-  cursor: grabbing;
+.featured-slide.active {
+  display: block;
 }
 
-/* Background Blurred Video Layer (fills entire compact box) */
+/* Background Blurred Video Layer (fills entire 9:16 frame) */
 .featured-bg-layer {
   position: absolute;
   inset: -20px;
@@ -3275,12 +3276,12 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: blur(28px) brightness(0.62) saturate(1.2);
+  filter: blur(28px) brightness(0.65) saturate(1.2);
   transform: scale(1.15);
   pointer-events: none;
 }
 
-/* Foreground 9:16 Video Layer (centered, undistorted) */
+/* Foreground Video Layer (centered, original aspect ratio, NEVER stretched) */
 .featured-fg-container {
   position: absolute;
   inset: 0;
@@ -3292,17 +3293,6 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   pointer-events: none;
 }
 
-.featured-fg-frame {
-  position: relative;
-  height: 100%;
-  aspect-ratio: 9 / 16;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  pointer-events: auto;
-}
-
 .featured-fg-video {
   width: 100%;
   height: 100%;
@@ -3311,52 +3301,79 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   pointer-events: auto;
 }
 
-/* Very subtle desktop navigation arrows */
-.featured-nav-btn {
+/* Minimal Floating Sound Button at Top-Right Corner Inside 9:16 Frame */
+.featured-sound-btn {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
+  top: 12px;
+  right: 12px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
   color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 10;
-  opacity: 0;
-  transition: opacity 0.25s, transform 0.25s, background 0.2s;
+  z-index: 40;
+  transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
-.featured-viewport-wrapper:hover .featured-nav-btn {
-  opacity: 0.85;
+.featured-sound-btn:hover {
+  background: rgba(0, 0, 0, 0.88);
+  transform: scale(1.08);
 }
 
-.featured-nav-prev {
-  left: 8px;
-}
-
-.featured-nav-next {
-  right: 8px;
+/* Visible Floating Left & Right Navigation Arrows (Vertically Centered On Top of Video) */
+.featured-nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #ffffff;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 40;
+  opacity: 0.92;
+  transition: opacity 0.2s, transform 0.2s, background 0.2s;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 
 .featured-nav-btn:hover {
   opacity: 1;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.88);
   transform: translateY(-50%) scale(1.08);
+}
+
+.featured-nav-prev {
+  left: 10px;
+}
+
+.featured-nav-next {
+  right: 10px;
 }
 
 @media (max-width: 768px) {
   .featured-carousel-section {
     padding: 0 12px;
-    margin: 4px auto 12px auto;
+    margin: 4px auto 14px auto;
   }
   .featured-nav-btn {
-    display: none; /* Mobile utilizes native swipe */
+    width: 38px;
+    height: 38px;
+    opacity: 0.95;
   }
 }
 
@@ -3587,12 +3604,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 /* Interactive Preview Viewport */
 .featured-editor-viewport {
   position: relative;
-  width: 100%;
-  height: clamp(240px, 46vw, 320px);
-  border-radius: var(--radius-md);
+  width: min(78vw, 290px);
+  aspect-ratio: 9 / 16;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 18px;
   overflow: hidden;
   background: #000000;
-  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.22), 0 6px 12px -2px rgba(0, 0, 0, 0.12);
   cursor: grab;
   user-select: none;
 }
@@ -3631,8 +3650,8 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 
 .editor-fg-frame {
   position: relative;
+  width: 100%;
   height: 100%;
-  aspect-ratio: 9 / 16;
   display: flex;
   align-items: center;
   justify-content: center;

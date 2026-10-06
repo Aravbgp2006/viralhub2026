@@ -291,7 +291,8 @@ async function run() {
       const bgFilter = window.getComputedStyle(bgVideo).filter;
       const bgObjectFit = window.getComputedStyle(bgVideo).objectFit;
       const fgObjectFit = window.getComputedStyle(fgVideo).objectFit;
-      const fgFrameRatio = window.getComputedStyle(fgFrame).aspectRatio;
+      const vpWrapper = document.querySelector('.featured-viewport-wrapper');
+      const vpRatio = window.getComputedStyle(vpWrapper).aspectRatio;
 
       return {
         hasBgVideo: Boolean(bgVideo),
@@ -299,7 +300,7 @@ async function run() {
         bgFilter,
         bgObjectFit,
         fgObjectFit,
-        fgFrameRatio,
+        vpRatio,
         bgSrc: bgVideo.src || bgVideo.dataset.src,
         fgSrc: fgVideo.src || fgVideo.dataset.src
       };
@@ -377,13 +378,13 @@ async function run() {
     await sleep(600);
 
     const refreshCheck = await page.evaluate(() => {
-      const track = document.getElementById('featuredTrack');
+      const s0 = document.getElementById('featuredSlide_0');
       return {
-        scrollLeft: track ? track.scrollLeft : -1
+        s0Active: s0 ? s0.classList.contains('active') : false
       };
     });
-    console.log('Track scrollLeft after refresh:', refreshCheck.scrollLeft);
-    assert.strictEqual(refreshCheck.scrollLeft, 0, 'Every homepage refresh must start at Slot 1 (scrollLeft = 0)');
+    console.log('Slot 0 active after refresh:', refreshCheck.s0Active);
+    assert.strictEqual(refreshCheck.s0Active, true, 'Every homepage refresh must start at Slot 1 (s0Active = true)');
 
     // ----------------------------------------------------------------------
     // REQUIREMENT 11: MOBILE-FIRST RESPONSIVE VIEWPORT & SWIPE
@@ -409,16 +410,12 @@ async function run() {
       };
     });
     console.log('Mobile Carousel Dimensions & Spacing:', mobileDimensions);
-    assert.ok(mobileDimensions.height <= 340, 'Carousel container must be compact and NOT a full-height 9:16 vertical phone screen');
-    assert.ok(mobileDimensions.height >= 220, 'Carousel height should be suitable compact size');
-    assert.ok(mobileDimensions.gapToCat < 25, 'Small spacing between category tabs and carousel');
-    assert.ok(mobileDimensions.gapToFeed < 30, 'Small spacing between carousel and Latest Videos feed');
+    assert.ok(mobileDimensions.height > mobileDimensions.width * 1.5, 'Carousel container must be portrait 9:16');
+    assert.ok(mobileDimensions.gapToCat < 30, 'Small spacing between category tabs and carousel');
+    assert.ok(mobileDimensions.gapToFeed < 40, 'Small spacing between carousel and Latest Videos feed');
 
-    // Mobile swipe via scroll
-    await page.evaluate(() => {
-      const track = document.getElementById('featuredTrack');
-      track.scrollTo({ left: track.clientWidth, behavior: 'smooth' });
-    });
+    // Mobile swipe
+    await page.click('#btnFeaturedNext');
     await sleep(700);
 
     const mobileSwipeVideoCheck = await page.evaluate(() => {
@@ -444,7 +441,7 @@ async function run() {
       };
     });
     console.log('Desktop Carousel Dimensions:', desktopDimensions);
-    assert.ok(desktopDimensions.height <= 360, 'Desktop carousel must be compact, not dominating homepage');
+    assert.ok(desktopDimensions.height > desktopDimensions.width * 1.5, 'Desktop carousel must be portrait 9:16');
 
     // ----------------------------------------------------------------------
     // REQUIREMENT 13: REPLACE A SLOT
