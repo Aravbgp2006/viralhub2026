@@ -372,10 +372,16 @@
   // ========================================================================
   // 6b. FEATURED HOMEPAGE VIDEOS CAROUSEL CONTROLLER (2:3 PURE VIDEO)
   // ========================================================================
+  // ========================================================================
+  // FEATURED SHORT VIDEOS HOMEPAGE CAROUSEL (60FPS MOBILE PERFORMANCE ENGINE)
+  // ========================================================================
   let featuredVideosList = [];
   let currentFeaturedIndex = 0;
   let isFeaturedMuted = true;
   let isCarouselAnimating = false;
+  let animTimeout = null;
+  let animCleanupCallback = null;
+  let currentPlayingIndex = -1;
 
   const featuredCarouselSection = document.getElementById('featuredCarouselSection');
   const featuredViewportWrapper = document.getElementById('featuredViewportWrapper');
@@ -410,10 +416,14 @@
 
       // Always reset to Video 1 (index 0) on fresh load / refresh
       currentFeaturedIndex = 0;
+      currentPlayingIndex = -1;
       isFeaturedMuted = true;
       updateFeaturedSoundButtonUI();
 
       renderFeaturedSlides();
+
+      // Initialize preload window (Video 0 auto, adjacent metadata, distant none)
+      updateVideoPreloadWindow(0);
 
       // Setup touch swipe, mouse drag, and buttons
       setupFeaturedTouchAndDragEvents();
@@ -443,26 +453,84 @@
       slide.dataset.index = index;
       slide.dataset.id = item.id;
       slide.style.display = index === 0 ? 'block' : 'none';
-      slide.style.transform = index === 0 ? 'translateX(0)' : 'translateX(100%)';
+      slide.style.transform = index === 0 ? 'translate3d(0, 0, 0)' : 'translate3d(100%, 0, 0)';
 
       const streamUrl = item.stream_url || item.preview_video_url || `/api/featured-carousel/${item.id}/stream`;
       const zoom = parseFloat(item.zoom) || 1.0;
       const panX = parseFloat(item.pan_x) || 0;
       const panY = parseFloat(item.pan_y) || 0;
+      const hasThumb = Boolean(item.thumbnail_url && item.thumbnail_url.trim().length > 0);
 
-      // PURE VIDEO ONLY:
-      // Layer 1: Heavily blurred background video (fills the 2:3 container completely)
-      // Layer 2: Centered foreground video with original aspect ratio (never stretched)
+      // ULTRA-PERFORMANT DUAL-LAYER DESIGN:
+      // Layer 1 (Background): Static image snapshot with CSS blur (or strictly PAUSED video frame fallback).
+      //                       CRITICAL: Background NEVER plays or continuously decodes video!
+      // Layer 2 (Foreground): The ONLY actively playing and decoding video in the entire browser.
       slide.innerHTML = `
         <div class="featured-bg-layer" aria-hidden="true">
-          <video class="featured-bg-video" id="featuredBgVideo_${index}" playsinline webkit-playsinline muted loop preload="${index === 0 ? 'auto' : 'metadata'}" data-src="${escapeHtmlApp(streamUrl)}">
+          <img class="featured-bg-img" id="featuredBgImg_${index}" alt="" src="${escapeHtmlApp(hasThumb ? item.thumbnail_url : '')}" style="${hasThumb ? 'display: block;' : 'display: none;'}" loading="lazy" />
+          <video class="featured-bg-video" id="featuredBgVideo_${index}" playsinline webkit-playsinline muted loop preload="${index === 0 ? 'metadata' : 'none'}" style="${hasThumb ? 'display: none;' : 'display: block;'}" data-src="${escapeHtmlApp(streamUrl)}">
           </video>
         </div>
         <div class="featured-fg-container">
-          <video class="featured-fg-video" id="featuredFgVideo_${index}" playsinline webkit-playsinline muted loop preload="${index === 0 ? 'auto' : 'metadata'}" data-src="${escapeHtmlApp(streamUrl)}" style="transform: translate(${panX}px, ${panY}px) scale(${zoom});">
+          <video class="featured-fg-video" id="featuredFgVideo_${index}" playsinline webkit-playsinline muted loop preload="${index === 0 ? 'auto' : 'none'}" data-src="${escapeHtmlApp(streamUrl)}" style="transform: translate3d(${panX}px, ${panY}px, 0) scale(${zoom});">
           </video>
         </div>
       `;
+
+      // Set initial src for active slide
+      const fgVid = slide.querySelector('.featured-fg-video');
+      const bgVid = slide.querySelector('.featured-bg-video');
+
+      if (index === 0) {
+        if (fgVid && !fgVid.src) fgVid.src = streamUrl;
+        if (bgVid && !bgVid.src && !hasThumb) bgVid.src = streamUrl;
+      }
+
+      // Robust Video Event Handlers for Foreground Video
+      if (fgVid) {
+        fgVid.addEventListener('loadedmetadata', () => {
+          fgVid.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${zoom})`;
+        });
+
+        // Frame snapshot capture: Replace background video with static image texture as soon as first frame decodes
+        fgVid.addEventListener('loadeddata', () => {
+          const bgImg = document.getElementById(`featuredBgImg_${index}`);
+          if (bgImg && (!bgImg.src || bgImg.style.display === 'none') && fgVid.videoWidth > 0) {
+            try {
+              const c = document.createElement('canvas');
+              c.width = 160;
+              c.height = 284;
+              const ctx = c.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(fgVid, 0, 0, c.width, c.height);
+                bgImg.src = c.toDataURL('image/jpeg', 0.6);
+                bgImg.style.display = 'block';
+                const curBgVid = document.getElementById(`featuredBgVideo_${index}`);
+                if (curBgVid) curBgVid.style.display = 'none';
+              }
+            } catch (_) {
+              // Graceful fallback: bgVid remains paused
+            }
+          }
+        }, { once: true });
+
+        fgVid.addEventListener('waiting', () => {
+          // Buffering event: Carousel UI remains completely responsive and independent
+        });
+
+        fgVid.addEventListener('stalled', () => {
+          // Stalled event: Carousel UI remains completely responsive
+        });
+
+        fgVid.addEventListener('error', (e) => {
+          console.warn(`Featured video playback notice on slide ${index}:`, e);
+        });
+
+        fgVid.addEventListener('ended', () => {
+          fgVid.currentTime = 0;
+          fgVid.play().catch(() => {});
+        });
+      }
 
       // Tap on slide toggles play/pause for active slide
       slide.addEventListener('click', (e) => {
@@ -472,16 +540,13 @@
           return;
         }
 
-        const fgVid = document.getElementById(`featuredFgVideo_${index}`);
-        const bgVid = document.getElementById(`featuredBgVideo_${index}`);
-        if (!fgVid) return;
+        const activeFg = document.getElementById(`featuredFgVideo_${index}`);
+        if (!activeFg) return;
 
-        if (fgVid.paused) {
-          fgVid.play().catch(() => {});
-          if (bgVid && bgVid.paused) bgVid.play().catch(() => {});
+        if (activeFg.paused) {
+          activeFg.play().catch(() => {});
         } else {
-          fgVid.pause();
-          if (bgVid) bgVid.pause();
+          activeFg.pause();
         }
       });
 
@@ -489,92 +554,127 @@
     });
   }
 
-  let animationTimer = null;
-  let pendingTargetIndex = null;
+  // Preload Management: ONLY active, next, and previous videos are retained
+  function updateVideoPreloadWindow(activeIdx) {
+    const n = featuredVideosList.length;
+    if (n === 0) return;
 
-  function pauseAllExcept(targetIndex) {
-    featuredVideosList.forEach((_, i) => {
-      if (i !== targetIndex) {
-        const otherFg = document.getElementById(`featuredFgVideo_${i}`);
-        const otherBg = document.getElementById(`featuredBgVideo_${i}`);
-        if (otherFg) {
-          otherFg.pause();
-          try { otherFg.currentTime = 0; } catch (_) {}
+    const nextIdx = (activeIdx + 1) % n;
+    const prevIdx = (activeIdx - 1 + n) % n;
+
+    for (let i = 0; i < n; i++) {
+      const fg = document.getElementById(`featuredFgVideo_${i}`);
+      const bg = document.getElementById(`featuredBgVideo_${i}`);
+      if (!fg) continue;
+
+      if (i === activeIdx) {
+        // Active slide: full preload and ready
+        if (!fg.src && fg.dataset.src) {
+          fg.src = fg.dataset.src;
         }
-        if (otherBg) {
-          otherBg.pause();
-          try { otherBg.currentTime = 0; } catch (_) {}
+        fg.preload = 'auto';
+        if (bg && !bg.src && bg.dataset.src && (!bg.previousElementSibling || !bg.previousElementSibling.src)) {
+          bg.src = bg.dataset.src;
+          bg.preload = 'metadata';
+        }
+      } else if (i === nextIdx || i === prevIdx) {
+        // Immediate adjacent slides: metadata preloaded, playback strictly paused
+        if (!fg.src && fg.dataset.src) {
+          fg.src = fg.dataset.src;
+        }
+        fg.preload = 'metadata';
+        if (!fg.paused) fg.pause();
+        if (bg && !bg.paused) bg.pause();
+      } else {
+        // Distant slides: do NOT download or decode
+        if (!fg.paused) fg.pause();
+        if (bg && !bg.paused) bg.pause();
+        fg.preload = 'none';
+        if (n > 3 && fg.src) {
+          fg.removeAttribute('src');
+          try { fg.load(); } catch (_) {}
+        }
+        if (bg && bg.src) {
+          bg.removeAttribute('src');
+          try { bg.load(); } catch (_) {}
         }
       }
-    });
+    }
   }
 
-  function pauseFeaturedSlide(index) {
-    const fg = document.getElementById(`featuredFgVideo_${index}`);
-    const bg = document.getElementById(`featuredBgVideo_${index}`);
-    if (fg) fg.pause();
-    if (bg) bg.pause();
+  function pauseAllExcept(targetIndex) {
+    const n = featuredVideosList.length;
+    for (let i = 0; i < n; i++) {
+      if (i !== targetIndex) {
+        const otherFg = document.getElementById(`featuredFgVideo_${i}`);
+        if (otherFg && !otherFg.paused) {
+          otherFg.pause();
+        }
+        const otherBg = document.getElementById(`featuredBgVideo_${i}`);
+        if (otherBg && !otherBg.paused) {
+          otherBg.pause();
+        }
+      }
+    }
   }
 
   function activateAndPlayFeaturedSlide(index, allowAutoplay = true) {
     if (index < 0 || index >= featuredVideosList.length) return;
 
-    // Immediately pause ALL other videos (strict rule: never allow 2 videos playing simultaneously)
+    // Immediately pause all other videos (strictly ONE playing video in entire app)
     pauseAllExcept(index);
 
-    // Prepare target video
     const activeFg = document.getElementById(`featuredFgVideo_${index}`);
-    const activeBg = document.getElementById(`featuredBgVideo_${index}`);
-
     if (activeFg) {
       if (!activeFg.src && activeFg.dataset.src) {
         activeFg.src = activeFg.dataset.src;
         activeFg.load();
       }
+
       activeFg.muted = isFeaturedMuted;
       if (!isFeaturedMuted) {
         activeFg.volume = 1.0;
       }
 
+      // Background video is ALWAYS kept paused (it is visual snapshot only)
+      const activeBg = document.getElementById(`featuredBgVideo_${index}`);
       if (activeBg) {
-        if (!activeBg.src && activeBg.dataset.src) {
-          activeBg.src = activeBg.dataset.src;
-          activeBg.load();
-        }
-        activeBg.muted = true; // Background copy is ALWAYS muted
+        activeBg.muted = true;
+        if (!activeBg.paused) activeBg.pause();
       }
 
       if (allowAutoplay) {
-        const p1 = activeFg.play();
-        if (p1 !== undefined) {
-          p1.catch(() => {
-            activeFg.muted = true;
-            activeFg.play().catch(() => {});
-          });
-        }
-        if (activeBg) {
-          const p2 = activeBg.play();
-          if (p2 !== undefined) {
-            p2.catch(() => {
-              activeBg.muted = true;
-              activeBg.play().catch(() => {});
+        if (activeFg.paused || currentPlayingIndex !== index) {
+          currentPlayingIndex = index;
+          const playPromise = activeFg.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              // Autoplay policy fallback: mute and resume gracefully without breaking UI
+              if (!isFeaturedMuted) {
+                isFeaturedMuted = true;
+                updateFeaturedSoundButtonUI();
+                activeFg.muted = true;
+                activeFg.play().catch(() => {});
+              }
             });
           }
         }
       }
     }
 
-    // Preload adjacent next video
-    const nextIndex = (index + 1) % featuredVideosList.length;
-    const nextFg = document.getElementById(`featuredFgVideo_${nextIndex}`);
-    const nextBg = document.getElementById(`featuredBgVideo_${nextIndex}`);
-    if (nextFg && !nextFg.src && nextFg.dataset.src) {
-      nextFg.src = nextFg.dataset.src;
-      nextFg.preload = 'metadata';
-    }
-    if (nextBg && !nextBg.src && nextBg.dataset.src) {
-      nextBg.src = nextBg.dataset.src;
-      nextBg.preload = 'metadata';
+    // Keep memory and network strictly constrained to active + neighbors
+    updateVideoPreloadWindow(index);
+  }
+
+  function forceFinishActiveAnimation() {
+    if (isCarouselAnimating && typeof animCleanupCallback === 'function') {
+      if (animTimeout) {
+        clearTimeout(animTimeout);
+        animTimeout = null;
+      }
+      const cb = animCleanupCallback;
+      animCleanupCallback = null;
+      cb();
     }
   }
 
@@ -586,54 +686,79 @@
       return;
     }
 
-    // If an animation is already in flight, finalize it immediately first
-    if (isCarouselAnimating && pendingTargetIndex !== null) {
-      clearTimeout(animationTimer);
-      currentFeaturedIndex = pendingTargetIndex;
-      resetAllSlides();
-      isCarouselAnimating = false;
-    }
-
+    // Finalize any existing in-flight animation immediately
+    forceFinishActiveAnimation();
     isCarouselAnimating = true;
-    pendingTargetIndex = targetIndex;
 
     const oldIndex = currentFeaturedIndex;
     const oldSlide = document.getElementById(`featuredSlide_${oldIndex}`);
     const newSlide = document.getElementById(`featuredSlide_${targetIndex}`);
 
-    // Immediately pause ALL other videos
-    pauseAllExcept(targetIndex);
+    // Immediately pause outgoing video
+    const oldFg = document.getElementById(`featuredFgVideo_${oldIndex}`);
+    if (oldFg && !oldFg.paused) {
+      oldFg.pause();
+    }
+
+    // Prepare preload window
+    updateVideoPreloadWindow(targetIndex);
+
+    const w = featuredViewportWrapper ? (featuredViewportWrapper.clientWidth || 340) : 340;
+    const TRANSITION_CSS = 'transform 280ms cubic-bezier(0.25, 1, 0.5, 1)';
 
     // Position new slide before animating
     if (newSlide) {
       newSlide.style.transition = 'none';
       newSlide.style.display = 'block';
-      newSlide.style.transform = direction === 'next' ? 'translateX(100%)' : 'translateX(-100%)';
+      newSlide.className = 'featured-slide animating';
+      newSlide.style.transform = direction === 'next' ? `translate3d(${w}px, 0, 0)` : `translate3d(${-w}px, 0, 0)`;
     }
 
-    // Force reflow
+    if (oldSlide) {
+      oldSlide.style.display = 'block';
+      oldSlide.className = 'featured-slide animating';
+    }
+
+    // Single reflow sync before starting transition
     if (newSlide) void newSlide.offsetWidth;
 
-    // Immediately start playing target slide's video
+    // Trigger video playback on new slide
     activateAndPlayFeaturedSlide(targetIndex, true);
 
-    // Animate both slides horizontally with 280ms ease-out
-    const anim = 'transform 280ms ease-out';
+    // Apply hardware-accelerated CSS transition to both slides
     if (oldSlide) {
-      oldSlide.style.transition = anim;
-      oldSlide.style.transform = direction === 'next' ? 'translateX(-100%)' : 'translateX(100%)';
+      oldSlide.style.transition = TRANSITION_CSS;
+      oldSlide.style.transform = direction === 'next' ? `translate3d(${-w}px, 0, 0)` : `translate3d(${w}px, 0, 0)`;
     }
     if (newSlide) {
-      newSlide.style.transition = anim;
-      newSlide.style.transform = 'translateX(0)';
+      newSlide.style.transition = TRANSITION_CSS;
+      newSlide.style.transform = 'translate3d(0, 0, 0)';
     }
 
-    animationTimer = setTimeout(() => {
+    const cleanup = () => {
       currentFeaturedIndex = targetIndex;
-      pendingTargetIndex = null;
       resetAllSlides();
       isCarouselAnimating = false;
-    }, 285);
+      animCleanupCallback = null;
+      if (animTimeout) {
+        clearTimeout(animTimeout);
+        animTimeout = null;
+      }
+    };
+
+    animCleanupCallback = cleanup;
+
+    if (newSlide) {
+      const onEnd = (e) => {
+        if (e.target !== newSlide || e.propertyName !== 'transform') return;
+        newSlide.removeEventListener('transitionend', onEnd);
+        cleanup();
+      };
+      newSlide.addEventListener('transitionend', onEnd, { once: true });
+    }
+
+    // Safety timeout ensuring cleanup always fires
+    animTimeout = setTimeout(cleanup, 290);
   }
 
   function nextFeaturedSlide() {
@@ -652,30 +777,46 @@
     const n = featuredVideosList.length;
     if (n <= 0) return;
 
+    forceFinishActiveAnimation();
+    isCarouselAnimating = true;
+
     const curSlide = document.getElementById(`featuredSlide_${currentFeaturedIndex}`);
     const nextIdx = (currentFeaturedIndex + 1) % n;
     const prevIdx = (currentFeaturedIndex - 1 + n) % n;
     const nextSlide = document.getElementById(`featuredSlide_${nextIdx}`);
     const prevSlide = document.getElementById(`featuredSlide_${prevIdx}`);
 
-    const anim = 'transform 280ms ease-out';
+    const w = featuredViewportWrapper ? (featuredViewportWrapper.clientWidth || 340) : 340;
+    const TRANSITION_CSS = 'transform 280ms cubic-bezier(0.25, 1, 0.5, 1)';
+
     if (curSlide) {
-      curSlide.style.transition = anim;
-      curSlide.style.transform = 'translateX(0)';
+      curSlide.style.display = 'block';
+      curSlide.style.transition = TRANSITION_CSS;
+      curSlide.style.transform = 'translate3d(0, 0, 0)';
     }
-    if (nextSlide) {
-      nextSlide.style.transition = anim;
-      nextSlide.style.transform = 'translateX(100%)';
+    if (nextSlide && nextSlide !== curSlide) {
+      nextSlide.style.display = 'block';
+      nextSlide.style.transition = TRANSITION_CSS;
+      nextSlide.style.transform = `translate3d(${w}px, 0, 0)`;
     }
-    if (prevSlide && prevSlide !== nextSlide) {
-      prevSlide.style.transition = anim;
-      prevSlide.style.transform = 'translateX(-100%)';
+    if (prevSlide && prevSlide !== curSlide && prevSlide !== nextSlide) {
+      prevSlide.style.display = 'block';
+      prevSlide.style.transition = TRANSITION_CSS;
+      prevSlide.style.transform = `translate3d(${-w}px, 0, 0)`;
     }
 
-    setTimeout(() => {
+    const cleanup = () => {
       resetAllSlides();
       isCarouselAnimating = false;
-    }, 290);
+      animCleanupCallback = null;
+      if (animTimeout) {
+        clearTimeout(animTimeout);
+        animTimeout = null;
+      }
+    };
+
+    animCleanupCallback = cleanup;
+    animTimeout = setTimeout(cleanup, 290);
   }
 
   function resetAllSlides() {
@@ -685,13 +826,13 @@
       if (!slide) continue;
       slide.style.transition = '';
       if (i === currentFeaturedIndex) {
-        slide.classList.add('active');
+        slide.className = 'featured-slide active';
         slide.style.display = 'block';
-        slide.style.transform = 'translateX(0)';
+        slide.style.transform = 'translate3d(0, 0, 0)';
       } else {
-        slide.classList.remove('active');
+        slide.className = 'featured-slide';
         slide.style.display = 'none';
-        slide.style.transform = 'translateX(100%)';
+        slide.style.transform = 'translate3d(100%, 0, 0)';
       }
     }
   }
@@ -703,7 +844,9 @@
       curFg.muted = isFeaturedMuted;
       if (!isFeaturedMuted) {
         curFg.volume = 1.0;
-        curFg.play().catch(() => {});
+        if (curFg.paused) {
+          curFg.play().catch(() => {});
+        }
       }
     }
     updateFeaturedSoundButtonUI();
@@ -718,6 +861,9 @@
     }
   }
 
+  // ========================================================================
+  // ULTRA-SMOOTH GPU GESTURE ENGINE (ZERO LAYOUT REFLOWS IN TOUCHMOVE)
+  // ========================================================================
   function setupFeaturedTouchAndDragEvents() {
     if (!featuredViewportWrapper) return;
 
@@ -727,82 +873,80 @@
     let isTouchDragging = false;
     let isHorizontalGesture = null;
     let touchDeltaX = 0;
+    let cachedViewportWidth = 340;
+    let rafPending = false;
 
-    function prepareAdjacent() {
+    // Cached elements for live frame updates
+    let curSlideEl = null;
+    let nextSlideEl = null;
+    let prevSlideEl = null;
+
+    function prepareDragSlides() {
       const n = featuredVideosList.length;
       if (n <= 1) return;
+      cachedViewportWidth = featuredViewportWrapper ? (featuredViewportWrapper.clientWidth || 340) : 340;
+
       const nextIdx = (currentFeaturedIndex + 1) % n;
       const prevIdx = (currentFeaturedIndex - 1 + n) % n;
-      const curSlide = document.getElementById(`featuredSlide_${currentFeaturedIndex}`);
-      const nextSlide = document.getElementById(`featuredSlide_${nextIdx}`);
-      const prevSlide = document.getElementById(`featuredSlide_${prevIdx}`);
+      curSlideEl = document.getElementById(`featuredSlide_${currentFeaturedIndex}`);
+      nextSlideEl = document.getElementById(`featuredSlide_${nextIdx}`);
+      prevSlideEl = document.getElementById(`featuredSlide_${prevIdx}`);
 
-      if (curSlide) {
-        curSlide.style.transition = 'none';
-        curSlide.style.display = 'block';
-        curSlide.style.transform = 'translateX(0)';
+      if (curSlideEl) {
+        curSlideEl.style.transition = 'none';
+        curSlideEl.style.display = 'block';
+        curSlideEl.className = 'featured-slide active animating';
+        curSlideEl.style.transform = 'translate3d(0, 0, 0)';
       }
-      if (nextSlide) {
-        nextSlide.style.transition = 'none';
-        nextSlide.style.display = 'block';
-        nextSlide.style.transform = 'translateX(100%)';
+      if (nextSlideEl && nextSlideEl !== curSlideEl) {
+        nextSlideEl.style.transition = 'none';
+        nextSlideEl.style.display = 'block';
+        nextSlideEl.className = 'featured-slide animating';
+        nextSlideEl.style.transform = `translate3d(${cachedViewportWidth}px, 0, 0)`;
       }
-      if (prevSlide && prevSlide !== nextSlide) {
-        prevSlide.style.transition = 'none';
-        prevSlide.style.display = 'block';
-        prevSlide.style.transform = 'translateX(-100%)';
+      if (prevSlideEl && prevSlideEl !== curSlideEl && prevSlideEl !== nextSlideEl) {
+        prevSlideEl.style.transition = 'none';
+        prevSlideEl.style.display = 'block';
+        prevSlideEl.className = 'featured-slide animating';
+        prevSlideEl.style.transform = `translate3d(${-cachedViewportWidth}px, 0, 0)`;
       }
     }
 
-    function applyLiveDrag(dx) {
-      const n = featuredVideosList.length;
-      if (n <= 1) return;
-      const curSlide = document.getElementById(`featuredSlide_${currentFeaturedIndex}`);
-      const nextIdx = (currentFeaturedIndex + 1) % n;
-      const prevIdx = (currentFeaturedIndex - 1 + n) % n;
-      const nextSlide = document.getElementById(`featuredSlide_${nextIdx}`);
-      const prevSlide = document.getElementById(`featuredSlide_${prevIdx}`);
+    function renderDragTransforms() {
+      rafPending = false;
+      if (!isTouchDragging) return;
 
-      if (curSlide) {
-        curSlide.style.transform = `translateX(${dx}px)`;
+      const dx = touchDeltaX;
+      const w = cachedViewportWidth;
+
+      if (curSlideEl) {
+        curSlideEl.style.transform = `translate3d(${dx}px, 0, 0)`;
       }
 
       if (dx < 0) {
-        if (nextSlide) {
-          nextSlide.style.display = 'block';
-          nextSlide.style.transform = `translateX(calc(100% + ${dx}px))`;
-        }
-        if (prevSlide && prevSlide !== nextSlide) {
-          prevSlide.style.display = 'none';
+        if (nextSlideEl) {
+          nextSlideEl.style.transform = `translate3d(${w + dx}px, 0, 0)`;
         }
       } else {
-        if (prevSlide) {
-          prevSlide.style.display = 'block';
-          prevSlide.style.transform = `translateX(calc(-100% + ${dx}px))`;
-        }
-        if (nextSlide && nextSlide !== prevSlide) {
-          nextSlide.style.display = 'none';
+        if (prevSlideEl) {
+          prevSlideEl.style.transform = `translate3d(${-w + dx}px, 0, 0)`;
         }
       }
     }
 
-    // --- MOBILE TOUCH EVENTS ---
+    // --- MOBILE TOUCH GESTURES (PASSIVE START, MINIMAL MOVE, CANCELABLE SWIPE) ---
     featuredViewportWrapper.addEventListener('touchstart', (e) => {
       if (featuredVideosList.length <= 1) return;
-      if (isCarouselAnimating && pendingTargetIndex !== null) {
-        clearTimeout(animationTimer);
-        currentFeaturedIndex = pendingTargetIndex;
-        resetAllSlides();
-        isCarouselAnimating = false;
-      }
+      forceFinishActiveAnimation();
+
       const t = e.touches[0];
       touchStartX = t.clientX;
       touchStartY = t.clientY;
-      touchStartTime = Date.now();
+      touchStartTime = performance.now();
       isTouchDragging = true;
       isHorizontalGesture = null;
       touchDeltaX = 0;
-      prepareAdjacent();
+      prepareDragSlides();
     }, { passive: true });
 
     featuredViewportWrapper.addEventListener('touchmove', (e) => {
@@ -812,41 +956,51 @@
       const dy = t.clientY - touchStartY;
 
       if (isHorizontalGesture === null) {
-        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-        if (Math.abs(dy) >= Math.abs(dx)) {
-          // Vertical page scroll detected -> do not prevent default, let webpage scroll smoothly
+        const absX = Math.abs(dx);
+        const absY = Math.abs(dy);
+        if (absX < 6 && absY < 6) return;
+        if (absY >= absX) {
+          // Vertical page scroll detected -> do not block webpage scroll, gracefully abort drag
           isHorizontalGesture = false;
+          isTouchDragging = false;
           resetAllSlides();
           return;
-        } else {
-          // Horizontal carousel swipe detected!
-          isHorizontalGesture = true;
         }
+        // Horizontal carousel swipe detected!
+        isHorizontalGesture = true;
       }
 
       if (isHorizontalGesture) {
-        if (e.cancelable) e.preventDefault(); // Stop webpage from horizontal displacement/bounce
+        if (e.cancelable) e.preventDefault();
         touchDeltaX = dx;
-        applyLiveDrag(dx);
+
+        // Batch GPU transform updates to animation frame (ZERO layout reflows!)
+        if (!rafPending) {
+          rafPending = true;
+          requestAnimationFrame(renderDragTransforms);
+        }
       }
     }, { passive: false });
 
-    featuredViewportWrapper.addEventListener('touchend', (e) => {
+    featuredViewportWrapper.addEventListener('touchend', () => {
       if (!isTouchDragging) return;
       isTouchDragging = false;
+      rafPending = false;
 
       if (!isHorizontalGesture) {
         resetAllSlides();
         return;
       }
 
-      const dt = Date.now() - touchStartTime;
+      const dt = performance.now() - touchStartTime;
       const velocity = Math.abs(touchDeltaX) / Math.max(1, dt);
+      const threshold = 35;
+      const velocityThreshold = 0.35;
 
-      if (touchDeltaX < -35 || (touchDeltaX < -15 && velocity > 0.35)) {
+      if (touchDeltaX < -threshold || (touchDeltaX < -15 && velocity > velocityThreshold)) {
         // Swipe LEFT -> next video
         nextFeaturedSlide();
-      } else if (touchDeltaX > 35 || (touchDeltaX > 15 && velocity > 0.35)) {
+      } else if (touchDeltaX > threshold || (touchDeltaX > 15 && velocity > velocityThreshold)) {
         // Swipe RIGHT -> previous video
         prevFeaturedSlide();
       } else {
@@ -858,6 +1012,7 @@
     featuredViewportWrapper.addEventListener('touchcancel', () => {
       if (isTouchDragging) {
         isTouchDragging = false;
+        rafPending = false;
         snapBackSlide();
       }
     });
@@ -871,17 +1026,13 @@
     featuredViewportWrapper.addEventListener('mousedown', (e) => {
       if (e.target.closest('#btnFeaturedSound') || e.target.closest('#btnFeaturedPrev') || e.target.closest('#btnFeaturedNext')) return;
       if (featuredVideosList.length <= 1) return;
-      if (isCarouselAnimating && pendingTargetIndex !== null) {
-        clearTimeout(animationTimer);
-        currentFeaturedIndex = pendingTargetIndex;
-        resetAllSlides();
-        isCarouselAnimating = false;
-      }
+      forceFinishActiveAnimation();
+
       isMouseDragging = true;
       mouseStartX = e.clientX;
-      mouseStartTime = Date.now();
+      mouseStartTime = performance.now();
       mouseDeltaX = 0;
-      prepareAdjacent();
+      prepareDragSlides();
     });
 
     window.addEventListener('mousemove', (e) => {
@@ -890,28 +1041,36 @@
       if (Math.abs(dx) > 4) {
         e.preventDefault();
         mouseDeltaX = dx;
-        applyLiveDrag(dx);
+        touchDeltaX = dx;
+        if (!rafPending) {
+          rafPending = true;
+          requestAnimationFrame(renderDragTransforms);
+        }
       }
     });
 
     window.addEventListener('mouseup', () => {
       if (!isMouseDragging) return;
       isMouseDragging = false;
+      rafPending = false;
 
-      const dt = Date.now() - mouseStartTime;
+      const dt = performance.now() - mouseStartTime;
       const velocity = Math.abs(mouseDeltaX) / Math.max(1, dt);
+      const threshold = 35;
+      const velocityThreshold = 0.35;
 
-      if (mouseDeltaX < -35 || (mouseDeltaX < -15 && velocity > 0.35)) {
+      if (mouseDeltaX < -threshold || (mouseDeltaX < -15 && velocity > velocityThreshold)) {
         nextFeaturedSlide();
-      } else if (mouseDeltaX > 35 || (mouseDeltaX > 15 && velocity > 0.35)) {
+      } else if (mouseDeltaX > threshold || (mouseDeltaX > 15 && velocity > velocityThreshold)) {
         prevFeaturedSlide();
       } else if (Math.abs(mouseDeltaX) > 0) {
         snapBackSlide();
       }
       mouseDeltaX = 0;
+      touchDeltaX = 0;
     });
 
-    // --- BUTTON CONTROLS ---
+    // --- BUTTON CONTROLS (SHARED SINGLE NAVIGATION FUNCTION) ---
     if (btnFeaturedSound) {
       btnFeaturedSound.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -946,25 +1105,23 @@
     }
   }
 
+  // --- INTERSECTION OBSERVER (PAUSE PLAYBACK WHEN SCROLLED OUT OF VIEW) ---
   function setupFeaturedIntersectionObserver() {
     if (!featuredCarouselSection || !('IntersectionObserver' in window)) return;
 
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         const activeFg = document.getElementById(`featuredFgVideo_${currentFeaturedIndex}`);
-        const activeBg = document.getElementById(`featuredBgVideo_${currentFeaturedIndex}`);
         if (!activeFg) return;
 
         if (!entry.isIntersecting) {
           if (!activeFg.paused) {
             activeFg.pause();
-            if (activeBg) activeBg.pause();
           }
         } else {
-          // Re-entering viewport resumes playback
-          if (activeFg.paused) {
+          // Re-entering viewport resumes active video according to autoplay policy
+          if (activeFg.paused && !isCarouselAnimating) {
             activeFg.play().catch(() => {});
-            if (activeBg && activeBg.paused) activeBg.play().catch(() => {});
           }
         }
       });
