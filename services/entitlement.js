@@ -297,6 +297,8 @@ async function createOrderForVideo(params) {
           is_configured: true,
           is_test_mode: false
         };
+      } else {
+        throw new Error(cfOrder?.error || 'Cashfree order creation failed');
       }
     } catch (cfErr) {
       console.error('Error creating Cashfree order for video:', cfErr.message);
