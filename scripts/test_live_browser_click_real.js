@@ -111,7 +111,7 @@ async function runBrowserTest() {
         console.log('   Navigation wait note:', err.message);
         return null;
       }),
-      page.click('#btnUnlockVideo')
+      page.$eval('#btnUnlockVideo', el => el.click())
     ]);
 
     // Give page time to load PayU UI

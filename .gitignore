@@ -18,3 +18,4 @@ database/*.db-journal
 database/*.db-wal
 database/*.db-shm
 .env*
+scripts/*.png
