@@ -57,6 +57,7 @@ const {
 } = require('./services/payu');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'viralhub_2026_cms_secret_key_8f3a1b';
 
@@ -1081,33 +1082,45 @@ app.get(['/api/entitlements/check/:id', '/api/videos/:id/entitlement'], async (r
   }
 });
 
-// Create Razorpay Order for a specific video
+// Create PayU / Payment Order for a specific video
 app.post(['/api/entitlements/create-order', '/api/payment/create-order'], async (req, res) => {
   try {
     const video_id = req.body.video_id || req.body.videoId;
     const email = req.body.email || req.body.customerEmail || req.body.customer_email;
     const phone = req.body.phone || req.body.customerPhone || req.body.customer_phone;
+    const api_version = req.body.api_version || req.query?.api_version || process.env.PAYU_API_VERSION;
     if (!video_id) {
       return res.status(400).json({ error: 'video_id is required to create an order' });
     }
 
     const ctx = resolveUserContext(req);
     const userId = ctx.userId || req.cookies?.vh_uid || 'usr_' + crypto.randomBytes(8).toString('hex');
-    const host = `${req.protocol}://${req.get('host')}`;
+    
+    // Canonical HTTPS deployed origin
+    let deployedOrigin = 'https://viralhub2026-mu.vercel.app';
+    const forwardedHost = req.headers['x-forwarded-host'] || req.get('host');
+    if (forwardedHost) {
+      if (forwardedHost.includes('localhost') || forwardedHost.includes('127.0.0.1')) {
+        deployedOrigin = `${req.protocol || 'http'}://${forwardedHost}`;
+      } else {
+        deployedOrigin = `https://${forwardedHost}`;
+      }
+    }
 
     const orderData = await createOrderForVideo({
       video_id,
       user_id: userId,
       email: email || ctx.email,
       phone,
-      host,
-      surl: `${host}/api/payment/payu/success`,
-      furl: `${host}/api/payment/payu/failure`
+      api_version,
+      host: deployedOrigin,
+      surl: `${deployedOrigin}/api/payment/payu/success`,
+      furl: `${deployedOrigin}/api/payment/payu/failure`
     });
 
     res.json(orderData);
   } catch (err) {
-    console.error('Error creating video order:', err);
+    console.error('Error creating video order:', err.message);
     res.status(400).json({ error: err.message || 'Failed to initialize payment order' });
   }
 });

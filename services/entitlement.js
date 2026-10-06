@@ -262,13 +262,18 @@ async function createOrderForVideo(params) {
   const receipt = `rcpt_vid${vid}_${Date.now()}`.substring(0, 40);
 
   // --- PAYU PAYMENT PAYLOAD CREATION ---
-  const host = params.host || 'https://viralhub2026-mu.vercel.app';
-  const surl = params.surl || `${host}/api/payment/payu/success`;
-  const furl = params.furl || `${host}/api/payment/payu/failure`;
+  const deployedOrigin = params.host || 'https://viralhub2026-mu.vercel.app';
+  let safeBaseUrl = deployedOrigin;
+  if (!safeBaseUrl.startsWith('http://localhost') && !safeBaseUrl.startsWith('http://127.0.0.1')) {
+    safeBaseUrl = safeBaseUrl.replace(/^http:\/\//i, 'https://');
+  }
+  const surl = params.surl ? params.surl.replace(/^http:\/\/(?!localhost|127\.0\.0\.1)/i, 'https://') : `${safeBaseUrl}/api/payment/payu/success`;
+  const furl = params.furl ? params.furl.replace(/^http:\/\/(?!localhost|127\.0\.0\.1)/i, 'https://') : `${safeBaseUrl}/api/payment/payu/failure`;
 
   if (isPayUConfigured()) {
     try {
       const txnid = `tx_vid_${vid}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      const isV19 = String(params.api_version || process.env.PAYU_API_VERSION || '').trim() === '19';
       const payuPayload = createPayUPaymentPayload({
         videoId: vid,
         userId: user_id,
@@ -276,7 +281,8 @@ async function createOrderForVideo(params) {
         email: normalizedEmail,
         phone: normalizedPhone,
         firstname: normalizedEmail ? normalizedEmail.split('@')[0] : 'Customer',
-        productinfo: `Unlock Video #${vid}`,
+        productinfo: `Unlock Video ${vid}`,
+        api_version: isV19 ? '19' : undefined,
         txnid,
         surl,
         furl
@@ -302,6 +308,12 @@ async function createOrderForVideo(params) {
       console.error('Error creating PayU payment order:', payuErr.message);
       throw new Error(`PayU payment order error: ${payuErr.message}`);
     }
+  }
+
+  // Remove mock / test fallback from production payment path
+  const isProd = process.env.NODE_ENV === 'production' || process.env.PAYU_ENV === 'production' || Boolean(process.env.VERCEL);
+  if (isProd) {
+    throw new Error('Payment gateway error: PayU Production credentials are not configured or failed to initialize.');
   }
 
   if (isRazorpayConfigured() && razorpayInstance) {
