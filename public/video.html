@@ -589,8 +589,9 @@
             item.href = `/video/${rel.id}`;
             item.className = 'related-card';
             const relThumb = `/api/videos/${rel.id}/thumbnail`;
+            const relAspectClass = rel.thumbnail_aspect_ratio === '9:16' ? 'aspect-9-16' : 'aspect-16-9';
             item.innerHTML = `
-              <div class="related-thumb-box">
+              <div class="related-thumb-box ${relAspectClass}">
                 <img class="related-thumb" src="${relThumb}" alt="${rel.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
                 <span class="related-duration">${rel.duration || '00:00'}</span>
               </div>

@@ -112,7 +112,53 @@
   const editUploadProgressLabel = document.getElementById('editUploadProgressLabel');
   const btnSubmitEditText = document.getElementById('btnSubmitEditText');
 
-  let isBlobEnabled = false;
+  // --- Thumbnail Aspect Ratio & Crop Editor Elements ---
+  const addThumbPreviewCard = document.getElementById('addThumbPreviewCard');
+  const addPreviewAspectContainer = document.getElementById('addPreviewAspectContainer');
+  const addThumbPreviewImg = document.getElementById('addThumbPreviewImg');
+  const addPreviewBadge = document.getElementById('addPreviewBadge');
+  const btnReCropAdd = document.getElementById('btnReCropAdd');
+
+  const editThumbPreviewCard = document.getElementById('editThumbPreviewCard');
+  const editPreviewAspectContainer = document.getElementById('editPreviewAspectContainer');
+  const editThumbPreviewImg = document.getElementById('editThumbPreviewImg');
+  const editPreviewBadge = document.getElementById('editPreviewBadge');
+  const btnReCropEdit = document.getElementById('btnReCropEdit');
+
+  const thumbEditorModal = document.getElementById('thumbEditorModal');
+  const btnCloseThumbEditor = document.getElementById('btnCloseThumbEditor');
+  const btnCancelThumbEditor = document.getElementById('btnCancelThumbEditor');
+  const btnResetThumbEditor = document.getElementById('btnResetThumbEditor');
+  const btnSaveThumbEditor = document.getElementById('btnSaveThumbEditor');
+  const editorActiveFormatLabel = document.getElementById('editorActiveFormatLabel');
+  const thumbCropViewport = document.getElementById('thumbCropViewport');
+  const thumbCropFrame = document.getElementById('thumbCropFrame');
+  const thumbEditorCanvas = document.getElementById('thumbEditorCanvas');
+  const thumbZoomSlider = document.getElementById('thumbZoomSlider');
+  const btnZoomOut = document.getElementById('btnZoomOut');
+  const btnZoomIn = document.getElementById('btnZoomIn');
+  const zoomValueText = document.getElementById('zoomValueText');
+
+  // --- Crop Editor State ---
+  let currentCropContext = 'add'; // 'add' or 'edit'
+  let cropSourceImage = null; // HTMLImageElement
+  let cropSourceFile = null;  // File
+  let cropTargetRatio = '16:9'; // '16:9' or '9:16'
+  let cropZoom = 1.0;
+  let cropPanX = 0;
+  let cropPanY = 0;
+  let isCropDragging = false;
+  let cropDragStartX = 0;
+  let cropDragStartY = 0;
+  let cropDragInitialPanX = 0;
+  let cropDragInitialPanY = 0;
+  let cropTouchInitialDistance = null;
+  let cropTouchInitialZoom = 1.0;
+
+  let activeAddThumbFile = null;
+  let activeAddThumbDataUrl = null;
+  let activeEditThumbFile = null;
+  let activeEditThumbDataUrl = null;
   let isProductionEnv = false;
   let currentBlobAccess = 'private'; // Default to private per project config
 
@@ -339,6 +385,343 @@
   }
 
   // ========================================================================
+  // 2c. THUMBNAIL FIT & CROP EDITOR ENGINE (Canvas + Dual-Layer Blur)
+  // ========================================================================
+  function getSelectedFormat(context) {
+    const radioName = context === 'add' ? 'addThumbFormat' : 'editThumbFormat';
+    const checked = document.querySelector(`input[name="${radioName}"]:checked`);
+    return checked ? checked.value : '16:9';
+  }
+
+  function setZoom(val) {
+    cropZoom = Math.max(0.3, Math.min(3.0, Math.round(val * 100) / 100));
+    if (thumbZoomSlider) thumbZoomSlider.value = cropZoom;
+    if (zoomValueText) zoomValueText.textContent = `${Math.round(cropZoom * 100)}%`;
+    renderThumbnailCanvas();
+  }
+
+  function renderThumbnailCanvas() {
+    if (!thumbEditorCanvas) return;
+    const isPortrait = cropTargetRatio === '9:16';
+    const targetW = isPortrait ? 720 : 1280;
+    const targetH = isPortrait ? 1280 : 720;
+
+    if (thumbEditorCanvas.width !== targetW || thumbEditorCanvas.height !== targetH) {
+      thumbEditorCanvas.width = targetW;
+      thumbEditorCanvas.height = targetH;
+    }
+
+    if (thumbCropFrame) {
+      thumbCropFrame.className = `thumb-crop-frame ${isPortrait ? 'aspect-9-16' : 'aspect-16-9'}`;
+    }
+    if (editorActiveFormatLabel) {
+      editorActiveFormatLabel.textContent = `Format: ${isPortrait ? '9:16 Portrait' : '16:9 Landscape'}`;
+    }
+
+    const ctx = thumbEditorCanvas.getContext('2d');
+    ctx.clearRect(0, 0, targetW, targetH);
+
+    if (!cropSourceImage || !cropSourceImage.complete || !cropSourceImage.naturalWidth) {
+      return;
+    }
+
+    const imgW = cropSourceImage.naturalWidth;
+    const imgH = cropSourceImage.naturalHeight;
+
+    // Base "fit" scale where image fits inside target canvas without distortion
+    const baseFitScale = Math.min(targetW / imgW, targetH / imgH);
+    const currentW = imgW * baseFitScale * cropZoom;
+    const currentH = imgH * baseFitScale * cropZoom;
+
+    const fgX = (targetW - currentW) / 2 + cropPanX;
+    const fgY = (targetH - currentH) / 2 + cropPanY;
+
+    // Check if foreground fully covers canvas without leaving gaps
+    const isFullyCovered = (fgX <= 0 && fgY <= 0 && (fgX + currentW) >= targetW && (fgY + currentH) >= targetH);
+
+    // LAYER 1: Strongly blurred, slightly darkened enlarged background from SAME image
+    const coverScale = Math.max(targetW / imgW, targetH / imgH) * 1.25;
+    const bgW = imgW * coverScale;
+    const bgH = imgH * coverScale;
+    const bgX = (targetW - bgW) / 2;
+    const bgY = (targetH - bgH) / 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, targetW, targetH);
+    ctx.clip();
+
+    ctx.filter = 'blur(42px) brightness(0.68)';
+    ctx.drawImage(cropSourceImage, bgX, bgY, bgW, bgH);
+
+    // Reset filter & apply dark overlay tint for contrast
+    ctx.filter = 'none';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.restore();
+
+    // LAYER 2: Sharp foreground image
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, targetW, targetH);
+    ctx.clip();
+
+    if (!isFullyCovered) {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+      ctx.shadowBlur = 28;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 4;
+    }
+
+    ctx.drawImage(cropSourceImage, fgX, fgY, currentW, currentH);
+    ctx.restore();
+  }
+
+  function openThumbEditorModal(context, ratio) {
+    currentCropContext = context;
+    cropTargetRatio = ratio || getSelectedFormat(context);
+    cropZoom = 1.0;
+    cropPanX = 0;
+    cropPanY = 0;
+    if (thumbZoomSlider) thumbZoomSlider.value = 1.0;
+    if (zoomValueText) zoomValueText.textContent = '100%';
+    renderThumbnailCanvas();
+    if (thumbEditorModal) thumbEditorModal.classList.add('active');
+  }
+
+  function closeThumbEditor() {
+    if (thumbEditorModal) thumbEditorModal.classList.remove('active');
+  }
+
+  function openThumbEditorWithFile(file, context) {
+    if (!file) return;
+    cropSourceFile = file;
+    currentCropContext = context;
+    const format = getSelectedFormat(context);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        cropSourceImage = img;
+        openThumbEditorModal(context, format);
+      };
+      img.onerror = () => {
+        showToast('Could not load image for crop editor.');
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Crop Frame Drag & Wheel Interactions
+  if (thumbCropFrame) {
+    thumbCropFrame.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      isCropDragging = true;
+      cropDragStartX = e.clientX;
+      cropDragStartY = e.clientY;
+      cropDragInitialPanX = cropPanX;
+      cropDragInitialPanY = cropPanY;
+      thumbCropFrame.classList.add('dragging');
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isCropDragging || !thumbCropFrame) return;
+      const rect = thumbCropFrame.getBoundingClientRect();
+      const targetW = cropTargetRatio === '9:16' ? 720 : 1280;
+      const scaleFactor = targetW / (rect.width || 1);
+      cropPanX = cropDragInitialPanX + (e.clientX - cropDragStartX) * scaleFactor;
+      cropPanY = cropDragInitialPanY + (e.clientY - cropDragStartY) * scaleFactor;
+      renderThumbnailCanvas();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isCropDragging) {
+        isCropDragging = false;
+        if (thumbCropFrame) thumbCropFrame.classList.remove('dragging');
+      }
+    });
+
+    thumbCropFrame.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.08 : -0.08;
+      setZoom(cropZoom + delta);
+    }, { passive: false });
+
+    // Touch Support for Mobile
+    thumbCropFrame.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        isCropDragging = true;
+        cropDragStartX = e.touches[0].clientX;
+        cropDragStartY = e.touches[0].clientY;
+        cropDragInitialPanX = cropPanX;
+        cropDragInitialPanY = cropPanY;
+        thumbCropFrame.classList.add('dragging');
+      } else if (e.touches.length === 2) {
+        isCropDragging = false;
+        cropTouchInitialDistance = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        cropTouchInitialZoom = cropZoom;
+      }
+    }, { passive: true });
+
+    thumbCropFrame.addEventListener('touchmove', (e) => {
+      if (isCropDragging && e.touches.length === 1) {
+        e.preventDefault();
+        const rect = thumbCropFrame.getBoundingClientRect();
+        const targetW = cropTargetRatio === '9:16' ? 720 : 1280;
+        const scaleFactor = targetW / (rect.width || 1);
+        cropPanX = cropDragInitialPanX + (e.touches[0].clientX - cropDragStartX) * scaleFactor;
+        cropPanY = cropDragInitialPanY + (e.touches[0].clientY - cropDragStartY) * scaleFactor;
+        renderThumbnailCanvas();
+      } else if (e.touches.length === 2 && cropTouchInitialDistance) {
+        e.preventDefault();
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const ratio = dist / cropTouchInitialDistance;
+        setZoom(cropTouchInitialZoom * ratio);
+      }
+    }, { passive: false });
+
+    thumbCropFrame.addEventListener('touchend', (e) => {
+      if (e.touches.length === 0) {
+        isCropDragging = false;
+        cropTouchInitialDistance = null;
+        if (thumbCropFrame) thumbCropFrame.classList.remove('dragging');
+      } else if (e.touches.length === 1) {
+        isCropDragging = true;
+        cropDragStartX = e.touches[0].clientX;
+        cropDragStartY = e.touches[0].clientY;
+        cropDragInitialPanX = cropPanX;
+        cropDragInitialPanY = cropPanY;
+        cropTouchInitialDistance = null;
+      }
+    }, { passive: true });
+  }
+
+  if (thumbZoomSlider) {
+    thumbZoomSlider.addEventListener('input', (e) => setZoom(parseFloat(e.target.value)));
+  }
+  if (btnZoomIn) {
+    btnZoomIn.addEventListener('click', () => setZoom(cropZoom + 0.1));
+  }
+  if (btnZoomOut) {
+    btnZoomOut.addEventListener('click', () => setZoom(cropZoom - 0.1));
+  }
+  if (btnResetThumbEditor) {
+    btnResetThumbEditor.addEventListener('click', () => {
+      cropZoom = 1.0;
+      cropPanX = 0;
+      cropPanY = 0;
+      setZoom(1.0);
+    });
+  }
+  if (btnCloseThumbEditor) btnCloseThumbEditor.addEventListener('click', closeThumbEditor);
+  if (btnCancelThumbEditor) btnCancelThumbEditor.addEventListener('click', closeThumbEditor);
+
+  // Save Thumbnail from Canvas to JPEG File
+  if (btnSaveThumbEditor) {
+    btnSaveThumbEditor.addEventListener('click', () => {
+      if (!thumbEditorCanvas) return;
+      thumbEditorCanvas.toBlob((blob) => {
+        if (!blob) {
+          showToast('Failed to generate thumbnail image.');
+          return;
+        }
+
+        const fileName = `thumb-${Date.now()}-${cropTargetRatio.replace(':', 'x')}.jpg`;
+        const croppedFile = new File([blob], fileName, { type: 'image/jpeg' });
+        const previewUrl = URL.createObjectURL(blob);
+
+        if (currentCropContext === 'add') {
+          activeAddThumbFile = croppedFile;
+          activeAddThumbDataUrl = previewUrl;
+          if (addThumbPreviewImg) addThumbPreviewImg.src = previewUrl;
+          if (addPreviewAspectContainer) {
+            addPreviewAspectContainer.className = `preview-aspect-container aspect-${cropTargetRatio.replace(':', '-')}`;
+          }
+          if (addPreviewBadge) {
+            addPreviewBadge.textContent = `${cropTargetRatio === '9:16' ? '9:16 Portrait' : '16:9 Landscape'} · Saved`;
+          }
+          if (addThumbPreviewCard) addThumbPreviewCard.style.display = 'block';
+          if (thumbSelectedName) {
+            thumbSelectedName.textContent = `Cropped: ${cropTargetRatio} format (${(blob.size / 1024).toFixed(0)} KB)`;
+          }
+        } else {
+          activeEditThumbFile = croppedFile;
+          activeEditThumbDataUrl = previewUrl;
+          if (editThumbPreviewImg) editThumbPreviewImg.src = previewUrl;
+          if (editPreviewAspectContainer) {
+            editPreviewAspectContainer.className = `preview-aspect-container aspect-${cropTargetRatio.replace(':', '-')}`;
+          }
+          if (editPreviewBadge) {
+            editPreviewBadge.textContent = `${cropTargetRatio === '9:16' ? '9:16 Portrait' : '16:9 Landscape'} · Replacement Saved`;
+          }
+          if (editThumbPreviewCard) editThumbPreviewCard.style.display = 'block';
+          if (btnReCropEdit) btnReCropEdit.style.display = 'inline-flex';
+          if (editThumbSelectedName) {
+            editThumbSelectedName.textContent = `New replacement: ${cropTargetRatio} format (${(blob.size / 1024).toFixed(0)} KB)`;
+          }
+        }
+
+        closeThumbEditor();
+        showToast(`Thumbnail saved (${cropTargetRatio})`);
+      }, 'image/jpeg', 0.92);
+    });
+  }
+
+  // Adjust crop buttons
+  if (btnReCropAdd) {
+    btnReCropAdd.addEventListener('click', () => {
+      if (cropSourceImage) {
+        openThumbEditorModal('add', getSelectedFormat('add'));
+      } else if (addThumbnail && addThumbnail.files[0]) {
+        openThumbEditorWithFile(addThumbnail.files[0], 'add');
+      }
+    });
+  }
+  if (btnReCropEdit) {
+    btnReCropEdit.addEventListener('click', () => {
+      if (cropSourceImage) {
+        openThumbEditorModal('edit', getSelectedFormat('edit'));
+      } else if (editThumbnail && editThumbnail.files[0]) {
+        openThumbEditorWithFile(editThumbnail.files[0], 'edit');
+      }
+    });
+  }
+
+  // Format selector change handlers
+  document.querySelectorAll('input[name="addThumbFormat"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const newRatio = e.target.value;
+      if (cropSourceImage && (activeAddThumbFile || (thumbEditorModal && thumbEditorModal.classList.contains('active')))) {
+        openThumbEditorModal('add', newRatio);
+      }
+    });
+  });
+
+  document.querySelectorAll('input[name="editThumbFormat"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const newRatio = e.target.value;
+      if (cropSourceImage && activeEditThumbFile) {
+        openThumbEditorModal('edit', newRatio);
+      } else {
+        if (editPreviewAspectContainer) {
+          editPreviewAspectContainer.className = `preview-aspect-container aspect-${newRatio.replace(':', '-')}`;
+        }
+        if (editPreviewBadge) {
+          editPreviewBadge.textContent = `${newRatio === '9:16' ? '9:16 Portrait' : '16:9 Landscape'}`;
+        }
+      }
+    });
+  });
+
+  // ========================================================================
   // 3. RENDER TABLE & CARDS
   // ========================================================================
   function renderFilteredVideos() {
@@ -375,7 +758,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="admin-thumb-cell">
-          <img class="admin-thumb-img" src="/api/videos/${v.id}/thumbnail" alt="${v.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
+          <img class="admin-thumb-img aspect-${(v.thumbnail_aspect_ratio || '16:9').replace(':', '-')}" src="/api/videos/${v.id}/thumbnail" alt="${v.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
         </td>
         <td class="admin-title-cell">
           <div class="admin-table-video-title" title="${v.title}">${v.title}</div>
@@ -434,7 +817,7 @@
       card.innerHTML = `
         <div class="admin-card-top">
           <div class="admin-card-thumb-box">
-            <img class="admin-card-thumb-img" src="/api/videos/${v.id}/thumbnail" alt="${v.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
+            <img class="admin-card-thumb-img aspect-${(v.thumbnail_aspect_ratio || '16:9').replace(':', '-')}" src="/api/videos/${v.id}/thumbnail" alt="${v.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
           </div>
           <div class="admin-card-meta">
             <h3 class="admin-card-title">${v.title}</h3>
@@ -501,11 +884,18 @@
   btnOpenAddModal.addEventListener('click', () => {
     addVideoForm.reset();
     addVideoDurationSeconds = null;
+    activeAddThumbFile = null;
+    activeAddThumbDataUrl = null;
+    cropSourceImage = null;
+    cropSourceFile = null;
     const addInitialViews = document.getElementById('addInitialViews');
     if (addInitialViews) addInitialViews.value = '0';
     thumbSelectedName.textContent = '';
     videoSelectedName.textContent = '';
     addErrorBanner.style.display = 'none';
+    if (addThumbPreviewCard) addThumbPreviewCard.style.display = 'none';
+    const defRadio = document.querySelector('input[name="addThumbFormat"][value="16:9"]');
+    if (defRadio) defRadio.checked = true;
     if (uploadProgressContainer) uploadProgressContainer.style.display = 'none';
     if (uploadProgressBar) uploadProgressBar.style.width = '0%';
     resetSubmitButton();
@@ -532,7 +922,8 @@
   addThumbnail.addEventListener('change', () => {
     const file = addThumbnail.files[0];
     if (file) {
-      thumbSelectedName.textContent = `Selected: ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`;
+      thumbSelectedName.textContent = `Selected: ${file.name} — Opening crop editor...`;
+      openThumbEditorWithFile(file, 'add');
     } else {
       thumbSelectedName.textContent = '';
     }
@@ -566,8 +957,10 @@
     const category = document.getElementById('addCategory').value;
     const initialViewsInput = document.getElementById('addInitialViews') ? document.getElementById('addInitialViews').value.trim() : '0';
     const published = document.getElementById('addPublished').checked ? '1' : '0';
-    const thumbFile = addThumbnail.files[0];
+    const effectiveThumb = activeAddThumbFile || addThumbnail.files[0];
+    const thumbFile = effectiveThumb;
     const videoFile = addVideoFile.files[0];
+    const selectedThumbRatio = getSelectedFormat('add');
 
     // Client-side validations
     if (!title) {
@@ -587,7 +980,7 @@
     }
 
     if (!thumbFile) {
-      showAddError('Please select a thumbnail image (JPG, PNG, WebP).');
+      showAddError('Please select and save a thumbnail image (JPG, PNG, WebP).');
       return;
     }
     const validThumbExts = ['.jpg', '.jpeg', '.png', '.webp'];
@@ -684,7 +1077,8 @@
             published,
             video_url: videoBlob.url,
             thumbnail_url: thumbBlob.url,
-            duration_seconds: addVideoDurationSeconds
+            duration_seconds: addVideoDurationSeconds,
+            thumbnail_aspect_ratio: selectedThumbRatio
           })
         });
 
@@ -724,6 +1118,7 @@
     formData.append('category', category);
     formData.append('initial_views', initialViews);
     formData.append('published', published);
+    formData.append('thumbnail_aspect_ratio', selectedThumbRatio);
     formData.append('thumbnail', thumbFile);
     formData.append('video', videoFile);
     if (addVideoDurationSeconds) {
@@ -809,8 +1204,25 @@
     const editViews = document.getElementById('editViews');
     if (editViews) editViews.value = video.views !== undefined ? video.views : 0;
 
+    const existingRatio = video.thumbnail_aspect_ratio === '9:16' ? '9:16' : '16:9';
+    const ratioRadio = document.querySelector(`input[name="editThumbFormat"][value="${existingRatio}"]`);
+    if (ratioRadio) ratioRadio.checked = true;
+
+    activeEditThumbFile = null;
+    activeEditThumbDataUrl = null;
+    cropSourceImage = null;
+    cropSourceFile = null;
+
     editThumbnail.value = '';
     editThumbSelectedName.textContent = '';
+    if (editThumbPreviewCard && editThumbPreviewImg && editPreviewAspectContainer && editPreviewBadge) {
+      editThumbPreviewImg.src = `/api/videos/${video.id}/thumbnail`;
+      editPreviewAspectContainer.className = `preview-aspect-container aspect-${existingRatio.replace(':', '-')}`;
+      editPreviewBadge.textContent = `${existingRatio === '9:16' ? '9:16 Portrait' : '16:9 Landscape'} (Current)`;
+      editThumbPreviewCard.style.display = 'block';
+      if (btnReCropEdit) btnReCropEdit.style.display = 'none';
+    }
+
     if (editVideoFile) editVideoFile.value = '';
     if (editVideoSelectedName) editVideoSelectedName.textContent = '';
     editVideoDurationSeconds = null;
@@ -834,7 +1246,8 @@
   editThumbnail.addEventListener('change', () => {
     const file = editThumbnail.files[0];
     if (file) {
-      editThumbSelectedName.textContent = `New replacement: ${file.name}`;
+      editThumbSelectedName.textContent = `Selected: ${file.name} — Opening crop editor...`;
+      openThumbEditorWithFile(file, 'edit');
     } else {
       editThumbSelectedName.textContent = '';
     }
@@ -972,12 +1385,14 @@
         if (editUploadProgressLabel) editUploadProgressLabel.textContent = 'Updating database record...';
         if (btnSubmitEditText) btnSubmitEditText.textContent = 'Saving...';
 
+        const selectedEditThumbRatio = getSelectedFormat('edit');
         const updatePayload = {
           title,
           description,
           category,
           views: viewsVal,
-          published
+          published,
+          thumbnail_aspect_ratio: selectedEditThumbRatio
         };
         if (newThumbUrl) updatePayload.thumbnail_url = newThumbUrl;
         if (newVideoUrl) {
@@ -1027,6 +1442,7 @@
     const isJsonOnly = !newThumb && !newVideo;
     let reqBody;
     let reqHeaders = {};
+    const selectedEditThumbRatio = getSelectedFormat('edit');
 
     if (isJsonOnly) {
       reqHeaders['Content-Type'] = 'application/json';
@@ -1035,7 +1451,8 @@
         description,
         category,
         views: viewsVal,
-        published
+        published,
+        thumbnail_aspect_ratio: selectedEditThumbRatio
       });
     } else {
       // Local fallback multipart FormData
@@ -1045,6 +1462,7 @@
       formData.append('category', category);
       formData.append('views', viewsVal);
       formData.append('published', published);
+      formData.append('thumbnail_aspect_ratio', selectedEditThumbRatio);
       if (newThumb) formData.append('thumbnail', newThumb);
       if (newVideo) {
         formData.append('video', newVideo);

@@ -478,6 +478,7 @@ app.get('/api/videos', async (req, res) => {
         category, 
         COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_path, 
         COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
+        COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
         duration, 
         duration_seconds,
         published, 
@@ -520,6 +521,7 @@ app.get('/api/videos', async (req, res) => {
         ...v,
         thumbnail_path: thumbUrl,
         thumbnail_url: thumbUrl,
+        thumbnail_aspect_ratio: v.thumbnail_aspect_ratio || '16:9',
         duration: formatDuration(durSec) || v.duration || '00:00',
         duration_seconds: durSec,
         video_url: null,
@@ -553,6 +555,7 @@ app.get('/api/videos/:id', async (req, res) => {
          COALESCE(video_url, video_path) AS video_url, 
          COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_path, 
          COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
+         COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
          duration, 
          duration_seconds,
          published, 
@@ -574,6 +577,7 @@ app.get('/api/videos/:id', async (req, res) => {
            COALESCE(video_url, video_path) AS video_url, 
            COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_path, 
            COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
+           COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
            duration, 
            duration_seconds,
            published, 
@@ -623,6 +627,7 @@ app.get('/api/videos/:id', async (req, res) => {
          COALESCE(video_url, video_path) AS video_url, 
          COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_path, 
          COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
+         COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
          category, 
          duration, 
          duration_seconds,
@@ -645,6 +650,7 @@ app.get('/api/videos/:id', async (req, res) => {
     video.duration = formatDuration(durSec) || video.duration || '00:00';
     video.thumbnail_path = `/api/videos/${videoId}/thumbnail`;
     video.thumbnail_url = `/api/videos/${videoId}/thumbnail`;
+    video.thumbnail_aspect_ratio = video.thumbnail_aspect_ratio || '16:9';
 
     if (hasAccess) {
       video.is_locked = false;
@@ -663,6 +669,7 @@ app.get('/api/videos/:id', async (req, res) => {
         ...r,
         thumbnail_path: rThumb,
         thumbnail_url: rThumb,
+        thumbnail_aspect_ratio: r.thumbnail_aspect_ratio || '16:9',
         duration: formatDuration(rSec) || r.duration || '00:00',
         duration_seconds: rSec,
         video_url: null,
@@ -1702,6 +1709,7 @@ app.get('/api/admin/videos', requireAdminApi, async (req, res) => {
         COALESCE(video_url, video_path) AS video_url, 
         COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_path, 
         COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url, 
+        COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
         duration, 
         duration_seconds,
         published, 
@@ -1717,6 +1725,7 @@ app.get('/api/admin/videos', requireAdminApi, async (req, res) => {
         ...v,
         thumbnail_path: thumbUrl,
         thumbnail_url: thumbUrl,
+        thumbnail_aspect_ratio: v.thumbnail_aspect_ratio || '16:9',
         duration: formatDuration(durSec) || v.duration || '00:00',
         duration_seconds: durSec,
         published: v.published === true || v.published === 1 ? 1 : 0
@@ -1921,6 +1930,8 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
       }
     }
 
+    const thumbnail_aspect_ratio = req.body.thumbnail_aspect_ratio === '9:16' ? '9:16' : '16:9';
+
     const result = await query.get(
       `INSERT INTO videos (
          title, 
@@ -1933,9 +1944,10 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
          duration, 
          duration_seconds,
          published, 
-         views
+         views,
+         thumbnail_aspect_ratio
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         title.trim(),
@@ -1948,7 +1960,8 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
         duration,
         duration_seconds,
         Boolean(isPublished),
-        initialViews
+        initialViews,
+        thumbnail_aspect_ratio
       ]
     );
 
@@ -1957,7 +1970,7 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
       views: Number(result.views || 0),
       published: result.published === true || result.published === 1 ? 1 : 0
     };
-    console.log(`🎬 New video added: ID ${newVideo.id} - "${newVideo.title}"`);
+    console.log(`🎬 New video added: ID ${newVideo.id} - "${newVideo.title}" (${newVideo.thumbnail_aspect_ratio || '16:9'})`);
     res.status(201).json({ success: true, video: newVideo });
   } catch (err) {
     console.error('Error in POST /api/videos:', err);
@@ -1965,7 +1978,7 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
   }
 });
 
-// Edit Video Details (Supports title, desc, category, status, flexible views, thumbnail, and video)
+// Edit Video Details (Supports title, desc, category, status, flexible views, thumbnail, video, and aspect ratio)
 app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) => {
   try {
     const videoId = parseInt(req.params.id, 10);
@@ -2059,6 +2072,10 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
       if (parsedSec !== null) duration_seconds = parsedSec;
     }
 
+    const thumbnail_aspect_ratio = req.body.thumbnail_aspect_ratio === '9:16'
+      ? '9:16'
+      : (req.body.thumbnail_aspect_ratio === '16:9' ? '16:9' : (existingVideo.thumbnail_aspect_ratio || '16:9'));
+
     // 1. Update database record first
     const updated = await query.get(
       `UPDATE videos 
@@ -2073,8 +2090,9 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
          duration = $8,
          duration_seconds = $9,
          published = $10, 
-         views = $11 
-       WHERE id = $12
+         views = $11,
+         thumbnail_aspect_ratio = $12
+       WHERE id = $13
        RETURNING *`,
       [
         title.trim(),
@@ -2088,6 +2106,7 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
         duration_seconds,
         Boolean(isPublished),
         updatedViews,
+        thumbnail_aspect_ratio,
         videoId
       ]
     );

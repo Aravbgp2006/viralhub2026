@@ -562,13 +562,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   position: relative;
   outline: none;
   transition: transform var(--transition-fast);
+  align-self: start;
 }
 
 .video-card:hover {
   transform: translateY(-3px);
 }
 
-/* Card Thumbnail Container */
+/* Card Thumbnail Container (supports both 16:9 and 9:16) */
 .video-card-thumb-wrapper {
   position: relative;
   width: 100%;
@@ -578,6 +579,16 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   overflow: hidden;
   margin-bottom: 12px;
   border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.video-card.aspect-9-16 .video-card-thumb-wrapper,
+.video-card-thumb-wrapper.aspect-9-16 {
+  aspect-ratio: 9 / 16;
+}
+
+.video-card.aspect-16-9 .video-card-thumb-wrapper,
+.video-card-thumb-wrapper.aspect-16-9 {
+  aspect-ratio: 16 / 9;
 }
 
 .video-card-thumb {
@@ -2767,4 +2778,426 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   background-color: #fef3c7;
   color: #92400e;
 }
+
+/* ==========================================================================
+   THUMBNAIL ASPECT RATIO & FIT/CROP EDITOR STYLES
+   ========================================================================== */
+
+/* Thumbnail Format Selector Pills */
+.thumb-format-pills {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.thumb-format-pill {
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+}
+
+.thumb-format-pill input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.thumb-format-pill .pill-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-color);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.thumb-format-pill:hover .pill-content {
+  border-color: #999999;
+  background-color: var(--bg-hover);
+}
+
+.thumb-format-pill input[type="radio"]:checked + .pill-content {
+  background-color: #000000;
+  color: #FFFFFF;
+  border-color: #000000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.thumb-format-pill input[type="radio"]:focus-visible + .pill-content {
+  outline: 2px solid #000000;
+  outline-offset: 2px;
+}
+
+/* Saved Thumbnail Preview Card in Admin Add & Edit Forms */
+.thumb-saved-preview-card {
+  margin-top: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background-color: #09090b;
+}
+
+.preview-aspect-container {
+  position: relative;
+  width: 100%;
+  margin: 0 auto;
+  background-color: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.preview-aspect-container.aspect-16-9 {
+  aspect-ratio: 16 / 9;
+  max-width: 380px;
+}
+
+.preview-aspect-container.aspect-9-16 {
+  aspect-ratio: 9 / 16;
+  max-width: 210px;
+}
+
+.preview-aspect-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.preview-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background-color: #18181b;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.preview-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #10b981;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.btn-recrop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  background-color: rgba(255, 255, 255, 0.12);
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all var(--transition-fast);
+}
+
+.btn-recrop:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+/* ==========================================================================
+   MODAL: THUMBNAIL CROP & FIT EDITOR
+   ========================================================================== */
+.thumb-editor-overlay {
+  z-index: 1050; /* Above regular modals */
+}
+
+.thumb-editor-card {
+  max-width: 740px;
+  width: 95%;
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.thumb-editor-body {
+  padding: 16px 20px;
+  background-color: #09090b;
+  color: #f4f4f5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+}
+
+.editor-format-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.editor-format-indicator {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  background-color: #27272a;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+}
+
+.editor-blur-indicator {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+}
+
+/* Crop Viewport & Frame */
+.thumb-crop-viewport {
+  width: 100%;
+  min-height: 280px;
+  max-height: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, #27272a 10%, #121214 90%);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.thumb-crop-frame {
+  position: relative;
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 0 2px rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow var(--transition-fast);
+}
+
+.thumb-crop-frame:active,
+.thumb-crop-frame.dragging {
+  cursor: grabbing;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9), 0 0 0 2px #3b82f6;
+}
+
+.thumb-crop-frame.aspect-16-9 {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-width: 580px;
+  height: auto;
+}
+
+.thumb-crop-frame.aspect-9-16 {
+  aspect-ratio: 9 / 16;
+  height: 420px;
+  max-height: 55vh;
+  width: auto;
+  max-width: 100%;
+}
+
+#thumbEditorCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+/* Rule of Thirds Guide Lines */
+.thumb-crop-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  transition: opacity 0.2s;
+}
+
+.crop-line-h {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.8);
+}
+.crop-line-h1 { top: 33.333%; }
+.crop-line-h2 { top: 66.666%; }
+
+.crop-line-v {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  border-left: 1px dashed rgba(255, 255, 255, 0.8);
+}
+.crop-line-v1 { left: 33.333%; }
+.crop-line-v2 { left: 66.666%; }
+
+/* Editor Interactive Controls */
+.thumb-editor-controls {
+  width: 100%;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.zoom-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 480px;
+  background-color: #18181b;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.control-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #d4d4d8;
+  white-space: nowrap;
+}
+
+.control-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: #27272a;
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: background-color var(--transition-fast);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.control-btn:hover {
+  background-color: #3f3f46;
+}
+
+.zoom-range-input {
+  flex: 1;
+  accent-color: #3b82f6;
+  cursor: pointer;
+  height: 6px;
+  border-radius: 3px;
+  background: #27272a;
+}
+
+.zoom-value-text {
+  min-width: 44px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  font-weight: 600;
+}
+
+.editor-help-text {
+  font-size: 0.75rem;
+  color: #71717a;
+  text-align: center;
+}
+
+/* Editor Modal Footer Buttons */
+.thumb-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 20px;
+  background-color: var(--bg-primary);
+  border-top: 1px solid var(--border-color);
+}
+
+.btn-modal-reset {
+  padding: 9px 18px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.875rem;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  transition: all var(--transition-fast);
+}
+
+.btn-modal-reset:hover {
+  background-color: var(--border-color);
+}
+
+.btn-save-thumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  background-color: #000000;
+  color: #FFFFFF;
+  border: 1px solid #000000;
+  padding: 10px 22px;
+  border-radius: var(--radius-md);
+  transition: opacity var(--transition-fast);
+}
+
+.btn-save-thumb:hover {
+  opacity: 0.9;
+}
+
+/* Media Query Adaptations for Mobile Screens */
+@media (max-width: 640px) {
+  .thumb-crop-viewport {
+    padding: 10px;
+    min-height: 240px;
+  }
+
+  .thumb-crop-frame.aspect-9-16 {
+    height: 340px;
+  }
+
+  .zoom-controls-group {
+    padding: 6px 12px;
+    gap: 8px;
+  }
+}
+
+/* Admin Table & Cards Portrait Adaptation */
+.admin-thumb-img.aspect-9-16 {
+  aspect-ratio: 9 / 16;
+  width: 52px;
+  height: auto;
+}
+
+.admin-card-thumb-img.aspect-9-16 {
+  aspect-ratio: 9 / 16;
+  width: 68px;
+  height: auto;
+}
+
+.related-thumb-box.aspect-9-16 {
+  aspect-ratio: 9 / 16;
+  width: 80px;
+}
+
 

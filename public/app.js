@@ -194,14 +194,16 @@
 
     state.videos.forEach((video, index) => {
       const card = document.createElement('article');
-      card.className = 'video-card';
+      const isPortrait = video.thumbnail_aspect_ratio === '9:16';
+      const aspectClass = isPortrait ? 'aspect-9-16' : 'aspect-16-9';
+      card.className = `video-card ${aspectClass}`;
       card.setAttribute('role', 'article');
       card.setAttribute('tabindex', '0');
       card.setAttribute('aria-label', `${video.title}, ${formatViews(video.views)}, ${formatDate(video.created_at)}`);
       card.dataset.id = video.id;
 
       card.innerHTML = `
-        <div class="video-card-thumb-wrapper">
+        <div class="video-card-thumb-wrapper ${aspectClass}">
           <img class="video-card-thumb" src="/api/videos/${video.id}/thumbnail" alt="${video.title}" loading="${index < 4 ? 'eager' : 'lazy'}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
           <span class="video-badge-duration">${video.duration || '00:00'}</span>
           <div class="video-play-overlay" aria-hidden="true">
