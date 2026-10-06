@@ -65,7 +65,7 @@ function getPublicEntitlementConfig(videoId) {
     plan_price: '₹9/month',
     amount: VIDEO_AMOUNT_PAISE,
     currency: 'INR',
-    is_configured: isCfConfigured || isRzpConfigured || hasLink,
+    is_configured: true,
     cashfree_configured: isCfConfigured,
     environment: cfConfig.environment || 'sandbox',
     has_payment_link: hasLink,

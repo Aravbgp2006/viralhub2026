@@ -744,53 +744,66 @@
           } catch (_) {}
         }
 
-        if (!config || (!config.is_configured && !config.cashfree_configured && !config.payment_link_url)) {
-          clearTimeout(safetyTimeout);
-          showErrorMessage('Payment could not be started. Please try again.');
+        // Razorpay payment link fallback if specifically active
+        if (config && config.provider === 'razorpay' && config.payment_link_url && config.payment_link_url.startsWith('http')) {
+          window.location.href = config.payment_link_url;
           return;
         }
 
         // 1. CASHFREE CHECKOUT FLOW (Production & Sandbox Payment Gateway)
-        const isCashfree = config.provider === 'cashfree' || config.cashfree_configured || (typeof window.Cashfree === 'function');
-        if (isCashfree) {
-          const orderRes = await fetch('/api/entitlements/create-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              video_id: currentVideoId,
-              email: prefillEmail,
-              phone: prefillPhone,
-              return_url: `${window.location.origin}/video/${currentVideoId}?cf_order_id={order_id}`
-            }),
-            signal: AbortSignal.timeout(8000)
-          });
-          const orderData = await orderRes.json();
+        const orderRes = await fetch('/api/entitlements/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_id: currentVideoId,
+            email: prefillEmail,
+            phone: prefillPhone,
+            return_url: `${window.location.origin}/video/${currentVideoId}?cf_order_id={order_id}`
+          }),
+          signal: AbortSignal.timeout(8000)
+        });
+        const orderData = await orderRes.json();
 
-          if (!orderRes.ok || !orderData.order_id || !orderData.payment_session_id) {
-            clearTimeout(safetyTimeout);
-            showErrorMessage(orderData.error || 'Failed to initialize payment gateway.');
-            return;
-          }
-
+        if (!orderRes.ok || !orderData.order_id || !orderData.payment_session_id) {
           clearTimeout(safetyTimeout);
+          const safeError = orderData?.error
+            ? `Payment initialization failed: ${orderData.error}`
+            : 'Payment could not be started. Please try again.';
+          showErrorMessage(safeError);
+          return;
+        }
 
-          if (typeof window.Cashfree === 'function') {
-            const cashfree = window.Cashfree({ mode: orderData.environment || 'sandbox' });
-            try {
-              await cashfree.checkout({
-                paymentSessionId: orderData.payment_session_id,
-                redirectTarget: '_modal'
-              });
-              await verifyCashfreePayment(orderData.order_id);
-            } catch (sdkErr) {
-              console.warn('Cashfree SDK event:', sdkErr);
-              await verifyCashfreePayment(orderData.order_id);
+        clearTimeout(safetyTimeout);
+
+        // Ensure Cashfree SDK is loaded
+        let cashfree = null;
+        if (typeof window.Cashfree === 'function') {
+          cashfree = window.Cashfree({ mode: orderData.environment || 'sandbox' });
+        } else {
+          for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 100));
+            if (typeof window.Cashfree === 'function') {
+              cashfree = window.Cashfree({ mode: orderData.environment || 'sandbox' });
+              break;
             }
-            return;
-          } else {
-            showErrorMessage('Cashfree payment SDK is loading. Please reload the page and try again.');
-            return;
           }
+        }
+
+        if (cashfree) {
+          try {
+            await cashfree.checkout({
+              paymentSessionId: orderData.payment_session_id,
+              redirectTarget: '_modal'
+            });
+            await verifyCashfreePayment(orderData.order_id);
+          } catch (sdkErr) {
+            console.warn('Cashfree SDK event:', sdkErr);
+            await verifyCashfreePayment(orderData.order_id);
+          }
+          return;
+        } else {
+          showErrorMessage('Cashfree payment SDK is loading. Please reload the page and try again.');
+          return;
         }
 
         // 2. Razorpay popup flow (if Razorpay is explicitly configured)

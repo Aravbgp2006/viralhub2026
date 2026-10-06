@@ -17,15 +17,20 @@ const API_VERSION = '2023-08-01';
 const mockOrderStore = new Map();
 
 function getAppId() {
-  return (process.env.CASHFREE_APP_ID || '').trim();
+  return (process.env.CASHFREE_APP_ID || process.env.AppID || process.env.APP_ID || process.env.CF_APP_ID || '').trim();
 }
 
 function getSecretKey() {
-  return (process.env.CASHFREE_SECRET_KEY || '').trim();
+  return (process.env.CASHFREE_SECRET_KEY || process.env.SecretKey || process.env.SECRET_KEY || process.env.CF_SECRET_KEY || '').trim();
 }
 
 function getEnvironment() {
-  return (process.env.CASHFREE_ENV || 'sandbox').trim().toLowerCase();
+  const env = (process.env.CASHFREE_ENV || process.env.ENV || 'sandbox').trim().toLowerCase();
+  const appId = getAppId();
+  if (appId.startsWith('TEST') || env === 'sandbox' || env === 'test') {
+    return 'sandbox';
+  }
+  return env === 'production' ? 'production' : 'sandbox';
 }
 
 function getBaseUrl() {
