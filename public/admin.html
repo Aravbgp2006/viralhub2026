@@ -136,6 +136,30 @@
       <!-- Rendered dynamically -->
     </div>
 
+    <!-- ====================================================================
+         SECTION: FEATURED HOMEPAGE VIDEOS (UP TO 6 SLOTS)
+         ==================================================================== -->
+    <div class="admin-title-row" style="margin-top: 48px; border-top: 1px solid var(--border-color); padding-top: 36px;">
+      <div>
+        <h2 class="admin-page-title" style="font-size: 1.5rem;">Featured Homepage Videos</h2>
+        <p class="admin-page-desc">Curate exactly up to 6 featured short videos displayed in the homepage carousel (order preserved)</p>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button type="button" class="action-icon-btn" id="btnClearAllFeatured" style="color: #ef4444; border-color: rgba(239,68,68,0.3);">
+          Reset / Clear All
+        </button>
+        <button type="button" class="btn-primary-dark" id="btnSaveFeatured">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          <span id="btnSaveFeaturedText">Save Featured Videos</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 6 Featured Video Slots Grid -->
+    <div class="featured-slots-grid" id="featuredSlotsGrid">
+      <!-- 6 Slots rendered dynamically -->
+    </div>
+
     <!-- Subscription Management Section -->
     <div class="admin-title-row" style="margin-top: 48px; border-top: 1px solid var(--border-color); padding-top: 36px;">
       <div>
@@ -564,6 +588,32 @@
           </svg>
           <span>Save Thumbnail</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================================
+       MODAL 5: FEATURED VIDEO PICKER
+       ==================================================================== -->
+  <div class="modal-overlay" id="featuredVideoPickerModal" role="dialog" aria-modal="true" aria-labelledby="pickerModalTitle">
+    <div class="modal-card" style="max-width: 600px;">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="pickerModalTitle">Select Video for <span id="pickerSlotLabel">Slot 1</span></h2>
+          <p class="modal-subtitle">Pick from existing published videos to assign to this featured slot</p>
+        </div>
+        <button type="button" class="icon-btn" id="btnCloseFeaturedPicker" aria-label="Close video picker">✕</button>
+      </div>
+      <div class="modal-body" style="padding: 16px;">
+        <div style="margin-bottom: 14px;">
+          <input type="search" id="featuredPickerSearchInput" class="form-input" placeholder="Search videos by title or category..." autocomplete="off">
+        </div>
+        <div class="picker-video-list" id="pickerVideoList" style="max-height: 400px; overflow-y: auto;">
+          <!-- Dynamically populated video items -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-modal-cancel" id="btnCancelFeaturedPicker">Cancel</button>
       </div>
     </div>
   </div>

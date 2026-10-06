@@ -22,6 +22,22 @@
   const adminTableBody = document.getElementById('adminTableBody');
   const adminCardsContainer = document.getElementById('adminCardsContainer');
 
+  // Featured Homepage Videos DOM Elements
+  const featuredSlotsGrid = document.getElementById('featuredSlotsGrid');
+  const btnClearAllFeatured = document.getElementById('btnClearAllFeatured');
+  const btnSaveFeatured = document.getElementById('btnSaveFeatured');
+  const btnSaveFeaturedText = document.getElementById('btnSaveFeaturedText');
+  const featuredVideoPickerModal = document.getElementById('featuredVideoPickerModal');
+  const btnCloseFeaturedPicker = document.getElementById('btnCloseFeaturedPicker');
+  const btnCancelFeaturedPicker = document.getElementById('btnCancelFeaturedPicker');
+  const pickerSlotLabel = document.getElementById('pickerSlotLabel');
+  const featuredPickerSearchInput = document.getElementById('featuredPickerSearchInput');
+  const pickerVideoList = document.getElementById('pickerVideoList');
+
+  let featuredSlots = [];
+  let activePickerSlot = null;
+  let draggedSlotIndex = null;
+
   const btnAdminLogout = document.getElementById('btnAdminLogout');
   const btnOpenAddModal = document.getElementById('btnOpenAddModal');
   const addVideoModal = document.getElementById('addVideoModal');
@@ -319,6 +335,7 @@
       }
 
       await loadSubscriptionsData();
+      await loadFeaturedSlotsData();
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
       showToast('Error connecting to database');
@@ -386,7 +403,384 @@
   }
 
   // ========================================================================
-  // 2c. THUMBNAIL FIT & CROP EDITOR ENGINE (Canvas + Dual-Layer Blur)
+  // 2c. FEATURED HOMEPAGE VIDEOS MANAGEMENT
+  // ========================================================================
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  async function loadFeaturedSlotsData() {
+    if (!featuredSlotsGrid) return;
+    try {
+      const res = await fetch('/api/admin/featured-videos');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.slots && Array.isArray(data.slots)) {
+          featuredSlots = data.slots;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load featured slots:', err);
+    }
+
+    // Ensure we always have positions 1 through 6
+    if (!featuredSlots || featuredSlots.length === 0) {
+      featuredSlots = [1, 2, 3, 4, 5, 6].map(pos => ({
+        position: pos,
+        video_id: null,
+        is_active: false,
+        video: null
+      }));
+    } else {
+      const normalized = [];
+      for (let pos = 1; pos <= 6; pos++) {
+        const existing = featuredSlots.find(s => Number(s.position) === pos);
+        if (existing) {
+          normalized.push({
+            position: pos,
+            video_id: existing.video_id || null,
+            is_active: existing.is_active !== undefined ? Boolean(existing.is_active) : Boolean(existing.video_id),
+            video: existing.video || null
+          });
+        } else {
+          normalized.push({
+            position: pos,
+            video_id: null,
+            is_active: false,
+            video: null
+          });
+        }
+      }
+      featuredSlots = normalized;
+    }
+
+    renderFeaturedSlots();
+  }
+
+  function renderFeaturedSlots() {
+    if (!featuredSlotsGrid) return;
+    featuredSlotsGrid.innerHTML = '';
+
+    featuredSlots.forEach((slot, index) => {
+      const card = document.createElement('div');
+      card.className = 'featured-slot-card';
+      card.setAttribute('draggable', 'true');
+      card.dataset.index = index;
+      card.dataset.position = slot.position;
+
+      // Header row with slot badge and reorder controls
+      const header = document.createElement('div');
+      header.className = 'slot-header';
+      header.innerHTML = `
+        <span class="slot-badge">Slot ${slot.position}</span>
+        <div class="slot-reorder-group">
+          <button type="button" class="slot-reorder-btn btn-slot-up" title="Move Up" ${index === 0 ? 'disabled' : ''}>▲</button>
+          <button type="button" class="slot-reorder-btn btn-slot-down" title="Move Down" ${index === 5 ? 'disabled' : ''}>▼</button>
+          <span class="slot-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+        </div>
+      `;
+      card.appendChild(header);
+
+      if (slot.video && slot.video.id) {
+        // Preview Box
+        const isPortrait = slot.video.thumbnail_aspect_ratio === '9:16';
+        const previewBox = document.createElement('div');
+        previewBox.className = 'slot-preview-box';
+        if (isPortrait) {
+          previewBox.style.aspectRatio = '9 / 16';
+          previewBox.style.maxHeight = '180px';
+        }
+        const thumbUrl = slot.video.thumbnail_url || `/api/videos/${slot.video.id}/thumbnail`;
+        previewBox.innerHTML = `
+          <img src="${escapeHtml(thumbUrl)}" class="slot-preview-img" alt="${escapeHtml(slot.video.title)}" loading="lazy">
+        `;
+        card.appendChild(previewBox);
+
+        // Info
+        const info = document.createElement('div');
+        info.className = 'slot-video-info';
+        info.innerHTML = `
+          <h4 class="slot-video-title" title="${escapeHtml(slot.video.title)}">${escapeHtml(slot.video.title)}</h4>
+          <div class="slot-meta-row">
+            <span>${escapeHtml(slot.video.category || 'General')}</span>
+            <span>•</span>
+            <span>${slot.video.duration || '00:00'}</span>
+            <span>•</span>
+            <span>ID #${slot.video.id}</span>
+          </div>
+          <div class="slot-actions-bar">
+            <button type="button" class="action-icon-btn btn-slot-replace">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span>Replace</span>
+            </button>
+            <button type="button" class="action-icon-btn btn-delete btn-slot-remove">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span>Remove</span>
+            </button>
+          </div>
+        `;
+        card.appendChild(info);
+
+        info.querySelector('.btn-slot-replace').addEventListener('click', (e) => {
+          e.stopPropagation();
+          openFeaturedPicker(slot.position);
+        });
+
+        info.querySelector('.btn-slot-remove').addEventListener('click', (e) => {
+          e.stopPropagation();
+          slot.video_id = null;
+          slot.video = null;
+          slot.is_active = false;
+          renderFeaturedSlots();
+          showToast(`Cleared Slot ${slot.position}`);
+        });
+
+      } else {
+        // Empty slot
+        const emptyBox = document.createElement('div');
+        emptyBox.className = 'slot-empty-box';
+        emptyBox.innerHTML = `
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="opacity: 0.6;"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          <span style="font-size: 0.8125rem; font-weight: 600; color: var(--text-secondary);">Empty Slot</span>
+          <button type="button" class="btn-primary-dark btn-slot-select" style="padding: 6px 14px; font-size: 0.8125rem; margin-top: 4px;">
+            Select Video
+          </button>
+        `;
+        card.appendChild(emptyBox);
+
+        emptyBox.addEventListener('click', () => {
+          openFeaturedPicker(slot.position);
+        });
+      }
+
+      // Up button click
+      const btnUp = header.querySelector('.btn-slot-up');
+      if (btnUp) {
+        btnUp.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (index > 0) swapFeaturedSlots(index, index - 1);
+        });
+      }
+
+      // Down button click
+      const btnDown = header.querySelector('.btn-slot-down');
+      if (btnDown) {
+        btnDown.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (index < 5) swapFeaturedSlots(index, index + 1);
+        });
+      }
+
+      // Drag and drop events
+      card.addEventListener('dragstart', (e) => {
+        draggedSlotIndex = index;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(index));
+      });
+
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        draggedSlotIndex = null;
+        document.querySelectorAll('.featured-slot-card').forEach(c => c.classList.remove('drag-over'));
+      });
+
+      card.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        card.classList.add('drag-over');
+      });
+
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drag-over');
+      });
+
+      card.addEventListener('drop', (e) => {
+        e.preventDefault();
+        card.classList.remove('drag-over');
+        if (draggedSlotIndex !== null && draggedSlotIndex !== index) {
+          swapFeaturedSlots(draggedSlotIndex, index);
+        }
+      });
+
+      featuredSlotsGrid.appendChild(card);
+    });
+  }
+
+  function swapFeaturedSlots(fromIndex, toIndex) {
+    if (fromIndex < 0 || fromIndex >= 6 || toIndex < 0 || toIndex >= 6) return;
+    const temp = featuredSlots[fromIndex];
+    featuredSlots[fromIndex] = featuredSlots[toIndex];
+    featuredSlots[toIndex] = temp;
+
+    // Recalculate positions 1..6
+    featuredSlots.forEach((slot, idx) => {
+      slot.position = idx + 1;
+    });
+
+    renderFeaturedSlots();
+    showToast(`Swapped Slot ${fromIndex + 1} with Slot ${toIndex + 1}`);
+  }
+
+  function openFeaturedPicker(slotPosition) {
+    activePickerSlot = slotPosition;
+    if (pickerSlotLabel) pickerSlotLabel.textContent = `Slot ${slotPosition}`;
+    if (featuredPickerSearchInput) featuredPickerSearchInput.value = '';
+    if (featuredVideoPickerModal) featuredVideoPickerModal.classList.add('active');
+    renderPickerVideos('');
+  }
+
+  function closeFeaturedPicker() {
+    if (featuredVideoPickerModal) featuredVideoPickerModal.classList.remove('active');
+    activePickerSlot = null;
+  }
+
+  function renderPickerVideos(searchQuery = '') {
+    if (!pickerVideoList) return;
+    pickerVideoList.innerHTML = '';
+
+    const query = String(searchQuery || '').trim().toLowerCase();
+    const publishedVideos = allVideos.filter(v => Boolean(v.published === 1 || v.published === true));
+
+    const filtered = query
+      ? publishedVideos.filter(v => (v.title || '').toLowerCase().includes(query) || (v.category || '').toLowerCase().includes(query))
+      : publishedVideos;
+
+    if (filtered.length === 0) {
+      pickerVideoList.innerHTML = `
+        <div style="text-align: center; color: var(--text-muted); padding: 32px 16px;">
+          No published videos found matching "${escapeHtml(searchQuery)}"
+        </div>
+      `;
+      return;
+    }
+
+    filtered.forEach(v => {
+      const item = document.createElement('div');
+      item.className = 'picker-video-item';
+      const thumbUrl = v.thumbnail_url || `/api/videos/${v.id}/thumbnail`;
+      const isPortrait = v.thumbnail_aspect_ratio === '9:16';
+      
+      item.innerHTML = `
+        <img src="${escapeHtml(thumbUrl)}" class="picker-video-thumb" alt="${escapeHtml(v.title)}" style="${isPortrait ? 'aspect-ratio: 9/16; width: 45px;' : ''}" loading="lazy">
+        <div class="picker-video-info">
+          <h5 class="picker-video-title">${escapeHtml(v.title)}</h5>
+          <div class="picker-video-meta">
+            <span>${escapeHtml(v.category || 'General')}</span> · 
+            <span>${v.duration || '00:00'}</span> · 
+            <span>${Number(v.views || 0).toLocaleString()} views</span>
+          </div>
+        </div>
+        <button type="button" class="btn-primary-dark" style="padding: 6px 14px; font-size: 0.8125rem;">
+          Select
+        </button>
+      `;
+
+      item.addEventListener('click', () => {
+        if (activePickerSlot !== null) {
+          const targetSlot = featuredSlots.find(s => s.position === activePickerSlot);
+          if (targetSlot) {
+            targetSlot.video_id = v.id;
+            targetSlot.video = { ...v };
+            targetSlot.is_active = true;
+          }
+          closeFeaturedPicker();
+          renderFeaturedSlots();
+          showToast(`Assigned "${v.title}" to Slot ${activePickerSlot}`);
+        }
+      });
+
+      pickerVideoList.appendChild(item);
+    });
+  }
+
+  // Event Listeners for Featured Video Picker & Actions
+  if (btnCloseFeaturedPicker) {
+    btnCloseFeaturedPicker.addEventListener('click', closeFeaturedPicker);
+  }
+  if (btnCancelFeaturedPicker) {
+    btnCancelFeaturedPicker.addEventListener('click', closeFeaturedPicker);
+  }
+  if (featuredPickerSearchInput) {
+    featuredPickerSearchInput.addEventListener('input', (e) => {
+      renderPickerVideos(e.target.value);
+    });
+  }
+  if (featuredVideoPickerModal) {
+    featuredVideoPickerModal.addEventListener('click', (e) => {
+      if (e.target === featuredVideoPickerModal) {
+        closeFeaturedPicker();
+      }
+    });
+  }
+
+  // Save Featured Slots Handler
+  if (btnSaveFeatured) {
+    btnSaveFeatured.addEventListener('click', async () => {
+      btnSaveFeatured.disabled = true;
+      if (btnSaveFeaturedText) btnSaveFeaturedText.textContent = 'Saving...';
+      try {
+        const payloadSlots = featuredSlots.map(s => ({
+          position: s.position,
+          video_id: s.video_id,
+          is_active: s.video_id ? true : false
+        }));
+
+        const res = await fetch('/api/admin/featured-videos', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slots: payloadSlots })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast('Featured homepage videos saved successfully!');
+          await loadFeaturedSlotsData();
+        } else {
+          showToast(data.error || 'Failed to save featured videos');
+        }
+      } catch (err) {
+        console.error('Error saving featured videos:', err);
+        showToast('Server connection error');
+      } finally {
+        btnSaveFeatured.disabled = false;
+        if (btnSaveFeaturedText) btnSaveFeaturedText.textContent = 'Save Featured Videos';
+      }
+    });
+  }
+
+  // Clear All Featured Slots Handler
+  if (btnClearAllFeatured) {
+    btnClearAllFeatured.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to clear all featured carousel videos?')) return;
+      btnClearAllFeatured.disabled = true;
+      try {
+        const res = await fetch('/api/admin/featured-videos', {
+          method: 'DELETE'
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast('All featured slots have been cleared');
+          await loadFeaturedSlotsData();
+        } else {
+          showToast(data.error || 'Failed to clear featured videos');
+        }
+      } catch (err) {
+        console.error('Error clearing featured videos:', err);
+        showToast('Server error while clearing');
+      } finally {
+        btnClearAllFeatured.disabled = false;
+      }
+    });
+  }
+
+  // ========================================================================
+  // 2d. THUMBNAIL FIT & CROP EDITOR ENGINE (Canvas + Dual-Layer Blur)
   // ========================================================================
   function getSelectedFormat(context) {
     const radioName = context === 'add' ? 'addThumbFormat' : 'editThumbFormat';

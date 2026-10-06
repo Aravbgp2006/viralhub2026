@@ -2238,6 +2238,381 @@ app.delete('/api/videos/:id', requireAdminApi, async (req, res) => {
   }
 });
 
+// ==========================================================================
+// FEATURED HOMEPAGE VIDEOS APIS (SLOTS 1-6)
+// ==========================================================================
+
+// Public API: Fetch Published Featured Homepage Videos (Slots 1-6)
+app.get('/api/featured-videos', async (req, res) => {
+  try {
+    const querySql = isPostgres
+      ? `SELECT 
+           f.id AS featured_id,
+           f.position,
+           f.is_active,
+           v.id,
+           v.title,
+           v.description,
+           v.category,
+           COALESCE(v.video_url, v.video_path) AS video_url,
+           COALESCE(v.video_url, v.video_path) AS video_path,
+           COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_url,
+           COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_path,
+           COALESCE(v.thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
+           v.duration,
+           v.duration_seconds,
+           v.views,
+           v.published,
+           v.created_at
+         FROM featured_home_videos f
+         JOIN videos v ON f.video_id = v.id
+         WHERE f.is_active = true AND v.published = true
+         ORDER BY f.position ASC
+         LIMIT 6`
+      : `SELECT 
+           f.id AS featured_id,
+           f.position,
+           f.is_active,
+           v.id,
+           v.title,
+           v.description,
+           v.category,
+           COALESCE(v.video_url, v.video_path) AS video_url,
+           COALESCE(v.video_url, v.video_path) AS video_path,
+           COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_url,
+           COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_path,
+           COALESCE(v.thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
+           v.duration,
+           v.duration_seconds,
+           v.views,
+           v.published,
+           v.created_at
+         FROM featured_home_videos f
+         JOIN videos v ON f.video_id = v.id
+         WHERE f.is_active = 1 AND v.published = 1
+         ORDER BY f.position ASC
+         LIMIT 6`;
+
+    const rows = await query.all(querySql);
+    const videos = rows.map(r => {
+      const durSec = r.duration_seconds !== null && r.duration_seconds !== undefined ? Number(r.duration_seconds) : parseDurationToSeconds(r.duration);
+      return {
+        id: r.id,
+        featured_id: r.featured_id,
+        position: r.position,
+        title: r.title,
+        description: r.description,
+        category: r.category,
+        thumbnail_url: `/api/videos/${r.id}/thumbnail`,
+        thumbnail_aspect_ratio: r.thumbnail_aspect_ratio || '16:9',
+        duration: formatDuration(durSec) || r.duration || '00:00',
+        duration_seconds: durSec,
+        preview_video_url: `/api/featured-videos/${r.id}/stream`,
+        views: Number(r.views || 0),
+        published: r.published === true || r.published === 1 ? 1 : 0
+      };
+    });
+
+    res.json({ success: true, videos });
+  } catch (err) {
+    console.error('Error in GET /api/featured-videos:', err);
+    res.status(500).json({ error: 'Failed to retrieve featured videos' });
+  }
+});
+
+// Public API: Stream preview video for currently active featured video
+app.get('/api/featured-videos/:id/stream', async (req, res) => {
+  try {
+    const videoId = parseInt(req.params.id, 10);
+    if (isNaN(videoId)) {
+      return res.status(400).json({ error: 'Invalid video ID' });
+    }
+
+    const featuredCheckSql = isPostgres
+      ? `SELECT f.id, v.video_url, v.video_path 
+         FROM featured_home_videos f
+         JOIN videos v ON f.video_id = v.id
+         WHERE f.video_id = $1 AND f.is_active = true AND v.published = true`
+      : `SELECT f.id, v.video_url, v.video_path 
+         FROM featured_home_videos f
+         JOIN videos v ON f.video_id = v.id
+         WHERE f.video_id = $1 AND f.is_active = 1 AND v.published = 1`;
+
+    const featuredVideo = await query.get(featuredCheckSql, [videoId]);
+    if (!featuredVideo) {
+      return res.status(404).json({ error: 'Video not found or not currently featured' });
+    }
+
+    const targetUrl = featuredVideo.video_url || featuredVideo.video_path;
+    if (!targetUrl) {
+      return res.status(404).json({ error: 'Video stream path missing' });
+    }
+
+    // Remote Vercel Blob URL Streaming Proxy
+    if (isBlobUrl(targetUrl) || targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+      const fetchHeaders = {};
+      if (isBlobUrl(targetUrl) && process.env.BLOB_READ_WRITE_TOKEN) {
+        fetchHeaders['Authorization'] = `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`;
+      }
+      if (req.headers.range) {
+        fetchHeaders['Range'] = req.headers.range;
+      }
+      try {
+        const upstreamRes = await fetch(targetUrl, { headers: fetchHeaders });
+        if (!upstreamRes.ok && upstreamRes.status !== 206) {
+          const fallbackVideo = path.join(__dirname, 'uploads', 'videos', 'sample.mp4');
+          if (fs.existsSync(fallbackVideo) && fs.statSync(fallbackVideo).size > 0) {
+            return streamLocalVideoFile(fallbackVideo, req, res);
+          }
+          return res.status(upstreamRes.status || 502).json({ error: 'Video stream source unavailable' });
+        }
+        res.status(upstreamRes.status);
+        ['content-range', 'accept-ranges', 'content-length', 'content-type'].forEach(h => {
+          const val = upstreamRes.headers.get(h);
+          if (val) res.setHeader(h, val);
+        });
+        if (!res.getHeader('content-type')) res.setHeader('content-type', 'video/mp4');
+        if (!res.getHeader('accept-ranges')) res.setHeader('accept-ranges', 'bytes');
+        const { Readable } = require('stream');
+        const readableStream = Readable.fromWeb(upstreamRes.body);
+        return readableStream.pipe(res);
+      } catch (proxyErr) {
+        const fallbackVideo = path.join(__dirname, 'uploads', 'videos', 'sample.mp4');
+        if (fs.existsSync(fallbackVideo) && fs.statSync(fallbackVideo).size > 0) {
+          return streamLocalVideoFile(fallbackVideo, req, res);
+        }
+        return res.status(502).json({ error: 'Failed to stream video' });
+      }
+    }
+
+    // Local Disk Streaming with Partial Content
+    let localFilePath = targetUrl;
+    if (localFilePath.startsWith('/uploads/')) {
+      localFilePath = path.join(__dirname, localFilePath.replace(/^\//, ''));
+    } else if (!path.isAbsolute(localFilePath)) {
+      localFilePath = path.join(__dirname, 'uploads', 'videos', path.basename(localFilePath));
+    }
+    if (!fs.existsSync(localFilePath)) {
+      const fallbackVideo = path.join(__dirname, 'uploads', 'videos', 'sample.mp4');
+      if (fs.existsSync(fallbackVideo) && fs.statSync(fallbackVideo).size > 0) {
+        localFilePath = fallbackVideo;
+      } else {
+        return res.status(404).json({ error: 'Video file missing on server' });
+      }
+    }
+    return streamLocalVideoFile(localFilePath, req, res);
+  } catch (err) {
+    console.error(`Error in GET /api/featured-videos/${req.params.id}/stream:`, err);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to stream featured video' });
+  }
+});
+
+// Admin API: Get all 6 featured video slots configuration
+app.get('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
+  try {
+    const featuredRows = await query.all(`
+      SELECT 
+        f.id AS featured_id,
+        f.position,
+        f.video_id,
+        f.is_active,
+        v.id,
+        v.title,
+        v.description,
+        v.category,
+        COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_url,
+        COALESCE(v.thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
+        v.duration,
+        v.duration_seconds,
+        v.views,
+        v.published
+      FROM featured_home_videos f
+      JOIN videos v ON f.video_id = v.id
+      ORDER BY f.position ASC
+    `);
+
+    // Build array of exactly 6 slots (positions 1 through 6)
+    const slots = [];
+    for (let pos = 1; pos <= 6; pos++) {
+      const match = featuredRows.find(r => Number(r.position) === pos);
+      if (match) {
+        const durSec = match.duration_seconds !== null && match.duration_seconds !== undefined ? Number(match.duration_seconds) : parseDurationToSeconds(match.duration);
+        slots.push({
+          position: pos,
+          video_id: match.video_id,
+          is_active: Boolean(match.is_active === true || match.is_active === 1),
+          video: {
+            id: match.id,
+            title: match.title,
+            description: match.description,
+            category: match.category,
+            thumbnail_url: `/api/videos/${match.id}/thumbnail`,
+            thumbnail_aspect_ratio: match.thumbnail_aspect_ratio || '16:9',
+            duration: formatDuration(durSec) || match.duration || '00:00',
+            duration_seconds: durSec,
+            views: Number(match.views || 0),
+            published: Boolean(match.published === true || match.published === 1)
+          }
+        });
+      } else {
+        slots.push({
+          position: pos,
+          video_id: null,
+          is_active: false,
+          video: null
+        });
+      }
+    }
+
+    res.json({ success: true, slots });
+  } catch (err) {
+    console.error('Error in GET /api/admin/featured-videos:', err);
+    res.status(500).json({ error: 'Failed to retrieve featured video slots' });
+  }
+});
+
+// Admin API: Set or replace a single featured slot (position 1-6)
+app.post('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
+  try {
+    const { position, video_id, is_active } = req.body;
+    const pos = parseInt(position, 10);
+    const vidId = parseInt(video_id, 10);
+
+    if (isNaN(pos) || pos < 1 || pos > 6) {
+      return res.status(400).json({ error: 'Position must be an integer between 1 and 6' });
+    }
+    if (isNaN(vidId)) {
+      return res.status(400).json({ error: 'A valid video_id is required' });
+    }
+
+    const video = await query.get('SELECT id, title, published FROM videos WHERE id = $1', [vidId]);
+    if (!video) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    const activeFlag = is_active !== undefined ? Boolean(is_active) : true;
+
+    if (isPostgres) {
+      await query.run(
+        `INSERT INTO featured_home_videos (position, video_id, is_active, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (position) DO UPDATE SET 
+           video_id = EXCLUDED.video_id,
+           is_active = EXCLUDED.is_active,
+           updated_at = NOW()`,
+        [pos, vidId, activeFlag]
+      );
+    } else {
+      await query.run('DELETE FROM featured_home_videos WHERE position = $1', [pos]);
+      await query.run(
+        'INSERT INTO featured_home_videos (position, video_id, is_active, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)',
+        [pos, vidId, activeFlag ? 1 : 0]
+      );
+    }
+
+    res.json({ success: true, message: `Slot ${pos} updated successfully` });
+  } catch (err) {
+    console.error('Error in POST /api/admin/featured-videos:', err);
+    res.status(500).json({ error: 'Failed to set featured video slot' });
+  }
+});
+
+// Admin API: Bulk update / reorder all featured slots (up to 6)
+app.put('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
+  try {
+    const { slots } = req.body;
+    if (!Array.isArray(slots)) {
+      return res.status(400).json({ error: 'Request body must contain a "slots" array' });
+    }
+
+    if (slots.length > 6) {
+      return res.status(400).json({ error: 'Maximum of 6 featured slots allowed' });
+    }
+
+    const seenPositions = new Set();
+    const validatedSlots = [];
+
+    for (const item of slots) {
+      const pos = parseInt(item.position, 10);
+      if (isNaN(pos) || pos < 1 || pos > 6) {
+        return res.status(400).json({ error: `Invalid position: ${item.position}. Must be 1 to 6.` });
+      }
+      if (seenPositions.has(pos)) {
+        return res.status(400).json({ error: `Duplicate slot position: ${pos}` });
+      }
+      seenPositions.add(pos);
+
+      if (item.video_id !== null && item.video_id !== undefined && item.video_id !== '') {
+        const vidId = parseInt(item.video_id, 10);
+        if (isNaN(vidId)) {
+          return res.status(400).json({ error: `Invalid video_id in slot ${pos}` });
+        }
+        validatedSlots.push({
+          position: pos,
+          video_id: vidId,
+          is_active: item.is_active !== undefined ? Boolean(item.is_active) : true
+        });
+      }
+    }
+
+    // Verify all assigned videos exist
+    for (const s of validatedSlots) {
+      const video = await query.get('SELECT id FROM videos WHERE id = $1', [s.video_id]);
+      if (!video) {
+        return res.status(404).json({ error: `Video ID ${s.video_id} for Slot ${s.position} not found` });
+      }
+    }
+
+    // Clear and insert
+    await query.run('DELETE FROM featured_home_videos');
+    for (const s of validatedSlots) {
+      if (isPostgres) {
+        await query.run(
+          'INSERT INTO featured_home_videos (position, video_id, is_active, updated_at) VALUES ($1, $2, $3, NOW())',
+          [s.position, s.video_id, s.is_active]
+        );
+      } else {
+        await query.run(
+          'INSERT INTO featured_home_videos (position, video_id, is_active, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)',
+          [s.position, s.video_id, s.is_active ? 1 : 0]
+        );
+      }
+    }
+
+    res.json({ success: true, message: 'Featured video slots saved successfully' });
+  } catch (err) {
+    console.error('Error in PUT /api/admin/featured-videos:', err);
+    res.status(500).json({ error: 'Failed to save featured videos' });
+  }
+});
+
+// Admin API: Clear a specific slot by position
+app.delete('/api/admin/featured-videos/:position', requireAdminApi, async (req, res) => {
+  try {
+    const pos = parseInt(req.params.position, 10);
+    if (isNaN(pos) || pos < 1 || pos > 6) {
+      return res.status(400).json({ error: 'Position must be an integer between 1 and 6' });
+    }
+
+    await query.run('DELETE FROM featured_home_videos WHERE position = $1', [pos]);
+    res.json({ success: true, message: `Slot ${pos} cleared successfully` });
+  } catch (err) {
+    console.error(`Error in DELETE /api/admin/featured-videos/${req.params.position}:`, err);
+    res.status(500).json({ error: 'Failed to clear slot' });
+  }
+});
+
+// Admin API: Clear all featured slots
+app.delete('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
+  try {
+    await query.run('DELETE FROM featured_home_videos');
+    res.json({ success: true, message: 'All featured slots cleared successfully' });
+  } catch (err) {
+    console.error('Error in DELETE /api/admin/featured-videos:', err);
+    res.status(500).json({ error: 'Failed to clear all featured slots' });
+  }
+});
+
 // Error handling middleware (catches Multer file errors & unexpected errors)
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {

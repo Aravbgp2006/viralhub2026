@@ -329,6 +329,20 @@ async function initDatabase() {
 
           ALTER TABLE entitlements ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
           ALTER TABLE video_entitlements ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+
+          -- Create PostgreSQL featured_home_videos table (up to 6 slots)
+          CREATE TABLE IF NOT EXISTS featured_home_videos (
+            id SERIAL PRIMARY KEY,
+            video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL UNIQUE CHECK (position >= 1 AND position <= 6),
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_featured_videos_pos ON featured_home_videos (position);
+          CREATE INDEX IF NOT EXISTS idx_featured_videos_active ON featured_home_videos (is_active);
+          CREATE INDEX IF NOT EXISTS idx_featured_videos_vid ON featured_home_videos (video_id);
         `);
         break;
       } catch (err) {
@@ -338,7 +352,7 @@ async function initDatabase() {
       }
     }
 
-    console.log('✅ Neon PostgreSQL `videos`, `subscriptions`, and `entitlements` tables and indexes ready.');
+    console.log('✅ Neon PostgreSQL `videos`, `subscriptions`, `entitlements`, and `featured_home_videos` tables ready.');
 
     // Check if initial seeding is needed
     const countRes = await query.get('SELECT COUNT(*)::int AS total FROM videos');
@@ -346,6 +360,7 @@ async function initDatabase() {
       console.log('🌱 Seeding initial demo videos into Neon PostgreSQL...');
       await seedInitialVideos();
     }
+    await seedFeaturedVideosIfEmpty();
   } else {
     // Local SQLite fallback schema
     const createTableSql = `
@@ -419,6 +434,20 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_ventitlements_user_vid ON video_entitlements (user_id, video_id);
       CREATE INDEX IF NOT EXISTS idx_ventitlements_payment_id ON video_entitlements (payment_id);
       CREATE INDEX IF NOT EXISTS idx_ventitlements_video_id ON video_entitlements (video_id);
+
+      -- Create SQLite featured_home_videos table (up to 6 slots)
+      CREATE TABLE IF NOT EXISTS featured_home_videos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL UNIQUE CHECK (position >= 1 AND position <= 6),
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_featured_videos_pos ON featured_home_videos (position);
+      CREATE INDEX IF NOT EXISTS idx_featured_videos_active ON featured_home_videos (is_active);
+      CREATE INDEX IF NOT EXISTS idx_featured_videos_vid ON featured_home_videos (video_id);
     `;
 
     await query.raw(createTableSql);
@@ -448,13 +477,51 @@ async function initDatabase() {
       });
     });
 
-    console.log('✅ SQLite `videos` table ready.');
+    console.log('✅ SQLite `videos` and `featured_home_videos` tables ready.');
 
     const countRow = await query.get('SELECT COUNT(*) AS total FROM videos');
     if (countRow && countRow.total === 0) {
       console.log('🌱 Seeding initial demo videos into SQLite...');
       await seedInitialVideos();
     }
+    await seedFeaturedVideosIfEmpty();
+  }
+}
+
+async function seedFeaturedVideosIfEmpty() {
+  try {
+    const featuredCount = await query.get(
+      isPostgres 
+        ? 'SELECT COUNT(*)::int AS total FROM featured_home_videos'
+        : 'SELECT COUNT(*) AS total FROM featured_home_videos'
+    );
+    if (!featuredCount || Number(featuredCount.total) === 0) {
+      const published = await query.all(
+        isPostgres
+          ? 'SELECT id FROM videos WHERE published = true ORDER BY views DESC, id DESC LIMIT 6'
+          : 'SELECT id FROM videos WHERE published = 1 ORDER BY views DESC, id DESC LIMIT 6'
+      );
+      if (published && published.length > 0) {
+        for (let i = 0; i < published.length; i++) {
+          const pos = i + 1;
+          const vidId = published[i].id;
+          if (isPostgres) {
+            await query.run(
+              'INSERT INTO featured_home_videos (video_id, position, is_active) VALUES ($1, $2, $3) ON CONFLICT (position) DO NOTHING',
+              [vidId, pos, true]
+            );
+          } else {
+            await query.run(
+              'INSERT OR IGNORE INTO featured_home_videos (video_id, position, is_active) VALUES ($1, $2, $3)',
+              [vidId, pos, 1]
+            );
+          }
+        }
+        console.log(`⭐ Seeded ${published.length} default featured homepage videos.`);
+      }
+    }
+  } catch (err) {
+    console.warn('Notice: seedFeaturedVideosIfEmpty encountered:', err.message);
   }
 }
 

@@ -370,8 +370,415 @@
   });
 
   // ========================================================================
+  // 6b. FEATURED HOMEPAGE VIDEOS CAROUSEL CONTROLLER
+  // ========================================================================
+  let featuredVideosList = [];
+  let currentFeaturedIndex = 0;
+  let isFeaturedMuted = true;
+  let featuredScrollDebounce = null;
+  let isUserDraggingTrack = false;
+  let dragStartX = 0;
+  let dragStartScrollLeft = 0;
+  let hasDraggedDistance = false;
+
+  const featuredCarouselSection = document.getElementById('featuredCarouselSection');
+  const featuredTrack = document.getElementById('featuredTrack');
+  const featuredCurrentSlide = document.getElementById('featuredCurrentSlide');
+  const featuredTotalSlides = document.getElementById('featuredTotalSlides');
+  const featuredDots = document.getElementById('featuredDots');
+  const btnFeaturedPrev = document.getElementById('btnFeaturedPrev');
+  const btnFeaturedNext = document.getElementById('btnFeaturedNext');
+
+  const muteSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
+  const unmuteSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
+
+  async function initFeaturedCarousel() {
+    if (!featuredCarouselSection || !featuredTrack) return;
+
+    try {
+      const res = await fetch('/api/featured-videos');
+      if (!res.ok) {
+        featuredCarouselSection.style.display = 'none';
+        return;
+      }
+
+      const data = await res.json();
+      const list = (data && Array.isArray(data.videos)) ? data.videos : [];
+
+      if (list.length === 0) {
+        featuredCarouselSection.style.display = 'none';
+        featuredVideosList = [];
+        return;
+      }
+
+      featuredVideosList = list;
+      featuredCarouselSection.style.display = 'block';
+      if (featuredTotalSlides) featuredTotalSlides.textContent = String(featuredVideosList.length);
+
+      renderFeaturedSlides();
+      renderFeaturedDots();
+
+      // Ensure fresh visit starts from Slot 1 (no scroll offset persisted)
+      currentFeaturedIndex = 0;
+      featuredTrack.scrollLeft = 0;
+      updateFeaturedCounter(0);
+      updateFeaturedDots(0);
+
+      // Setup drag and click handlers
+      setupFeaturedTrackEvents();
+
+      // Autoplay Slot 1 after slight frame delay to ensure DOM readiness
+      requestAnimationFrame(() => {
+        activateFeaturedSlide(0, true);
+      });
+
+      // Pause playback when carousel leaves viewport
+      setupFeaturedIntersectionObserver();
+
+    } catch (err) {
+      console.warn('Could not initialize featured carousel:', err);
+      if (featuredCarouselSection) featuredCarouselSection.style.display = 'none';
+    }
+  }
+
+  function renderFeaturedSlides() {
+    if (!featuredTrack) return;
+    featuredTrack.innerHTML = '';
+
+    featuredVideosList.forEach((item, index) => {
+      const slide = document.createElement('div');
+      slide.className = 'featured-slide';
+      slide.dataset.index = index;
+      slide.dataset.id = item.id;
+
+      const isPortrait = item.thumbnail_aspect_ratio === '9:16';
+      const thumbUrl = item.thumbnail_url || `/api/videos/${item.id}/thumbnail`;
+      const streamUrl = item.preview_video_url || `/api/featured-videos/${item.id}/stream`;
+
+      slide.innerHTML = `
+        <div class="featured-card">
+          <div class="featured-media-box" id="featuredMediaBox_${index}">
+            <span class="featured-slot-pill">Slot ${item.position || (index + 1)}</span>
+            <button type="button" class="featured-sound-toggle" id="featuredSoundToggle_${index}" aria-label="Toggle Sound" title="Toggle Sound">
+              ${isFeaturedMuted ? muteSvg : unmuteSvg}
+            </button>
+            <img class="featured-poster" id="featuredPoster_${index}" src="${escapeHtmlApp(thumbUrl)}" alt="${escapeHtmlApp(item.title)}" loading="${index === 0 ? 'eager' : 'lazy'}">
+            <video class="featured-video-player" id="featuredVideo_${index}" playsinline webkit-playsinline muted loop preload="${index <= 1 ? 'metadata' : 'none'}" data-src="${escapeHtmlApp(streamUrl)}">
+            </video>
+            <div class="featured-play-hint" aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+            </div>
+          </div>
+          <div class="featured-info-overlay">
+            <div class="featured-info-content">
+              <div class="featured-tag-row">
+                <span class="featured-cat-tag">${escapeHtmlApp(item.category || 'Featured')}</span>
+                <span class="featured-dur-pill">${item.duration || '00:00'}</span>
+              </div>
+              <a href="/video/${item.id}" class="featured-title-link">
+                <h3 class="featured-video-title">${escapeHtmlApp(item.title)}</h3>
+              </a>
+            </div>
+            <a href="/video/${item.id}" class="featured-watch-btn">
+              <span>Watch</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </a>
+          </div>
+        </div>
+      `;
+
+      // Sound button listener
+      const soundBtn = slide.querySelector(`#featuredSoundToggle_${index}`);
+      if (soundBtn) {
+        soundBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          toggleFeaturedSound();
+        });
+      }
+
+      // Media box click: toggle play/pause of the current active slide
+      const mediaBox = slide.querySelector(`#featuredMediaBox_${index}`);
+      if (mediaBox) {
+        mediaBox.addEventListener('click', (e) => {
+          if (e.target.closest('.featured-sound-toggle')) return;
+          if (hasDraggedDistance) return;
+
+          if (index !== currentFeaturedIndex) {
+            scrollToFeaturedSlide(index);
+            return;
+          }
+
+          const video = document.getElementById(`featuredVideo_${index}`);
+          if (!video) return;
+
+          if (video.paused) {
+            video.play().then(() => {
+              mediaBox.classList.remove('paused');
+            }).catch(() => {});
+          } else {
+            video.pause();
+            mediaBox.classList.add('paused');
+          }
+        });
+      }
+
+      featuredTrack.appendChild(slide);
+    });
+  }
+
+  function renderFeaturedDots() {
+    if (!featuredDots) return;
+    featuredDots.innerHTML = '';
+
+    featuredVideosList.forEach((_, index) => {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = `featured-dot ${index === 0 ? 'active' : ''}`;
+      dot.dataset.index = index;
+      dot.setAttribute('aria-label', `Go to featured slide ${index + 1}`);
+
+      dot.addEventListener('click', () => {
+        scrollToFeaturedSlide(index);
+      });
+
+      featuredDots.appendChild(dot);
+    });
+  }
+
+  function updateFeaturedCounter(index) {
+    if (featuredCurrentSlide) {
+      featuredCurrentSlide.textContent = String(index + 1);
+    }
+  }
+
+  function updateFeaturedDots(index) {
+    if (!featuredDots) return;
+    const dots = featuredDots.querySelectorAll('.featured-dot');
+    dots.forEach((dot, i) => {
+      dot.classList.toggle('active', i === index);
+    });
+  }
+
+  function updateAllSoundButtons() {
+    featuredVideosList.forEach((_, i) => {
+      const btn = document.getElementById(`featuredSoundToggle_${i}`);
+      if (btn) {
+        btn.innerHTML = isFeaturedMuted ? muteSvg : unmuteSvg;
+        btn.title = isFeaturedMuted ? 'Unmute' : 'Mute';
+      }
+    });
+  }
+
+  function toggleFeaturedSound() {
+    isFeaturedMuted = !isFeaturedMuted;
+    updateAllSoundButtons();
+
+    const activeVid = document.getElementById(`featuredVideo_${currentFeaturedIndex}`);
+    if (activeVid) {
+      activeVid.muted = isFeaturedMuted;
+    }
+  }
+
+  function activateFeaturedSlide(index, allowAutoplay = true) {
+    if (index < 0 || index >= featuredVideosList.length) return;
+
+    currentFeaturedIndex = index;
+    updateFeaturedCounter(index);
+    updateFeaturedDots(index);
+
+    // 1. Immediately pause and reset all other videos
+    featuredVideosList.forEach((_, i) => {
+      if (i !== index) {
+        const otherVid = document.getElementById(`featuredVideo_${i}`);
+        const otherPoster = document.getElementById(`featuredPoster_${i}`);
+        const otherBox = document.getElementById(`featuredMediaBox_${i}`);
+        if (otherVid) {
+          otherVid.pause();
+          try { otherVid.currentTime = 0; } catch (_) {}
+        }
+        if (otherPoster) {
+          otherPoster.classList.remove('hidden');
+        }
+        if (otherBox) {
+          otherBox.classList.remove('paused');
+        }
+      }
+    });
+
+    // 2. Prepare and activate targeted video
+    const activeVid = document.getElementById(`featuredVideo_${index}`);
+    const activePoster = document.getElementById(`featuredPoster_${index}`);
+    const activeBox = document.getElementById(`featuredMediaBox_${index}`);
+
+    if (activeVid) {
+      if (!activeVid.src && activeVid.dataset.src) {
+        activeVid.src = activeVid.dataset.src;
+        activeVid.load();
+      }
+
+      activeVid.muted = isFeaturedMuted;
+
+      if (allowAutoplay) {
+        const playPromise = activeVid.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            if (activePoster) activePoster.classList.add('hidden');
+            if (activeBox) activeBox.classList.remove('paused');
+          }).catch(() => {
+            activeVid.muted = true;
+            isFeaturedMuted = true;
+            updateAllSoundButtons();
+            activeVid.play().then(() => {
+              if (activePoster) activePoster.classList.add('hidden');
+              if (activeBox) activeBox.classList.remove('paused');
+            }).catch(() => {
+              if (activeBox) activeBox.classList.add('paused');
+            });
+          });
+        }
+      }
+    }
+
+    // 3. Preload adjacent next video
+    const nextIndex = index + 1;
+    if (nextIndex < featuredVideosList.length) {
+      const nextVid = document.getElementById(`featuredVideo_${nextIndex}`);
+      if (nextVid && !nextVid.src && nextVid.dataset.src) {
+        nextVid.src = nextVid.dataset.src;
+        nextVid.preload = 'metadata';
+      }
+    }
+  }
+
+  let isProgrammaticScrolling = false;
+  let programmaticScrollTimer = null;
+
+  function scrollToFeaturedSlide(index) {
+    if (!featuredTrack) return;
+    const clamped = Math.max(0, Math.min(featuredVideosList.length - 1, index));
+    const slideWidth = featuredTrack.clientWidth || 360;
+
+    isProgrammaticScrolling = true;
+    clearTimeout(programmaticScrollTimer);
+    clearTimeout(featuredScrollDebounce);
+
+    activateFeaturedSlide(clamped, true);
+
+    featuredTrack.scrollTo({
+      left: clamped * slideWidth,
+      behavior: 'smooth'
+    });
+
+    programmaticScrollTimer = setTimeout(() => {
+      isProgrammaticScrolling = false;
+    }, 500);
+  }
+
+  function setupFeaturedTrackEvents() {
+    if (!featuredTrack) return;
+
+    featuredTrack.addEventListener('scroll', () => {
+      if (isUserDraggingTrack || isProgrammaticScrolling) return;
+
+      clearTimeout(featuredScrollDebounce);
+      featuredScrollDebounce = setTimeout(() => {
+        if (isProgrammaticScrolling) return;
+        const slideWidth = featuredTrack.clientWidth || 360;
+        const newIndex = Math.round(featuredTrack.scrollLeft / slideWidth);
+        if (newIndex !== currentFeaturedIndex && newIndex >= 0 && newIndex < featuredVideosList.length) {
+          activateFeaturedSlide(newIndex, true);
+        }
+      }, 80);
+    }, { passive: true });
+
+    featuredTrack.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button') || e.target.closest('a')) return;
+      isUserDraggingTrack = true;
+      hasDraggedDistance = false;
+      dragStartX = e.pageX - featuredTrack.offsetLeft;
+      dragStartScrollLeft = featuredTrack.scrollLeft;
+      featuredTrack.style.cursor = 'grabbing';
+      featuredTrack.style.scrollSnapType = 'none';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isUserDraggingTrack) return;
+      e.preventDefault();
+      const x = e.pageX - featuredTrack.offsetLeft;
+      const walk = (x - dragStartX) * 1.2;
+      if (Math.abs(walk) > 6) {
+        hasDraggedDistance = true;
+      }
+      featuredTrack.scrollLeft = dragStartScrollLeft - walk;
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!isUserDraggingTrack) return;
+      isUserDraggingTrack = false;
+      featuredTrack.style.cursor = '';
+      featuredTrack.style.scrollSnapType = 'x mandatory';
+
+      const slideWidth = featuredTrack.clientWidth || 360;
+      const targetIndex = Math.round(featuredTrack.scrollLeft / slideWidth);
+      scrollToFeaturedSlide(targetIndex);
+
+      setTimeout(() => {
+        hasDraggedDistance = false;
+      }, 50);
+    });
+
+    if (btnFeaturedPrev) {
+      btnFeaturedPrev.addEventListener('click', (e) => {
+        e.preventDefault();
+        scrollToFeaturedSlide(currentFeaturedIndex - 1);
+      });
+    }
+
+    if (btnFeaturedNext) {
+      btnFeaturedNext.addEventListener('click', (e) => {
+        e.preventDefault();
+        scrollToFeaturedSlide(currentFeaturedIndex + 1);
+      });
+    }
+  }
+
+  function setupFeaturedIntersectionObserver() {
+    if (!featuredCarouselSection || !('IntersectionObserver' in window)) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        const activeVid = document.getElementById(`featuredVideo_${currentFeaturedIndex}`);
+        const activeBox = document.getElementById(`featuredMediaBox_${currentFeaturedIndex}`);
+        if (!activeVid) return;
+
+        if (!entry.isIntersecting) {
+          if (!activeVid.paused) {
+            activeVid.pause();
+            if (activeBox) activeBox.classList.add('paused');
+          }
+        }
+      });
+    }, { threshold: 0.3 });
+
+    observer.observe(featuredCarouselSection);
+  }
+
+  function escapeHtmlApp(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // ========================================================================
   // 7. INITIALIZATION
   // ========================================================================
   fetchVideos();
+  initFeaturedCarousel();
 
 })();
+
