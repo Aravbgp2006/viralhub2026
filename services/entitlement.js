@@ -13,6 +13,12 @@ require('dotenv').config();
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const { query, isPostgres } = require('../database/db');
+const {
+  createCashfreeOrder,
+  verifyCashfreeOrder,
+  isCashfreeConfigured,
+  getCashfreePublicConfig
+} = require('./cashfree');
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'viralhub_2026_cms_secret_key_8f3a1b';
 
@@ -47,18 +53,24 @@ function isRazorpayConfigured() {
  * Public configuration for frontend checkout
  */
 function getPublicEntitlementConfig(videoId) {
-  const isConfigured = isRazorpayConfigured();
+  const isRzpConfigured = isRazorpayConfigured();
   const hasLink = Boolean(RAZORPAY_PAYMENT_LINK_URL);
+  const cfConfig = getCashfreePublicConfig();
+  const isCfConfigured = isCashfreeConfigured();
+
   return {
+    provider: (isCfConfigured || !isRzpConfigured) ? 'cashfree' : 'razorpay',
     key_id: RAZORPAY_KEY_ID || 'rzp_test_mock_viralhub',
     price: VIDEO_PRICE,
     plan_price: '₹9/month',
     amount: VIDEO_AMOUNT_PAISE,
     currency: 'INR',
-    is_configured: isConfigured || hasLink,
+    is_configured: isCfConfigured || isRzpConfigured || hasLink,
+    cashfree_configured: isCfConfigured,
+    environment: cfConfig.environment || 'sandbox',
     has_payment_link: hasLink,
     payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null,
-    test_mode: !RAZORPAY_KEY_ID || RAZORPAY_KEY_ID.startsWith('rzp_test_') || RAZORPAY_KEY_ID.includes('mock')
+    test_mode: false
   };
 }
 
@@ -251,6 +263,49 @@ async function createOrderForVideo(params) {
   const normalizedPhone = (phone || '').trim();
   const receipt = `rcpt_vid${vid}_${Date.now()}`.substring(0, 40);
 
+  // If Cashfree is configured (or by default for modern video checkout):
+  if (isCashfreeConfigured() || !isRazorpayConfigured()) {
+    try {
+      const cfOrderId = `cf_vid_${vid}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      const cfOrder = await createCashfreeOrder({
+        amount: 9.00,
+        currency: 'INR',
+        orderId: cfOrderId,
+        customerId: user_id ? String(user_id).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40) : `cust_${Date.now()}`,
+        customerPhone: normalizedPhone || '9999999999',
+        customerEmail: normalizedEmail || 'customer@viralhub.com',
+        customerName: normalizedEmail ? normalizedEmail.split('@')[0] : 'ViralHub Customer',
+        returnUrl: params?.return_url || `https://viralhub2026-mu.vercel.app/video/${vid}?cf_order_id={order_id}`,
+        orderNote: `Unlock Video #${vid}`,
+        orderTags: { video_id: String(vid) }
+      });
+
+      if (cfOrder && cfOrder.success) {
+        return {
+          success: true,
+          order_id: cfOrder.order_id,
+          payment_session_id: cfOrder.payment_session_id,
+          environment: cfOrder.environment || 'sandbox',
+          key_id: RAZORPAY_KEY_ID || 'rzp_test_mock_viralhub',
+          amount: VIDEO_AMOUNT_PAISE,
+          amount_inr: 9.00,
+          currency: 'INR',
+          video_id: vid,
+          video_title: video.title,
+          email: normalizedEmail,
+          provider: 'cashfree',
+          is_configured: true,
+          is_test_mode: false
+        };
+      }
+    } catch (cfErr) {
+      console.error('Error creating Cashfree order for video:', cfErr.message);
+      if (!isRazorpayConfigured()) {
+        throw new Error(`Payment order creation error: ${cfErr.message}`);
+      }
+    }
+  }
+
   if (isRazorpayConfigured() && razorpayInstance) {
     try {
       const order = await razorpayInstance.orders.create({
@@ -315,15 +370,16 @@ async function verifyAndCreateEntitlement(params) {
     throw new Error('Invalid video ID specified');
   }
 
-  const razorpay_payment_id = params?.razorpay_payment_id || params?.paymentId;
+  const cfOrderId = params?.order_id || params?.cf_order_id || (!params?.razorpay_signature && params?.orderId ? params?.orderId : null);
+  const razorpay_payment_id = params?.razorpay_payment_id || params?.paymentId || cfOrderId;
   const razorpay_order_id = params?.razorpay_order_id || params?.orderId;
   const razorpay_signature = params?.razorpay_signature || params?.signature;
   const user_id = params?.user_id || params?.userId;
   const email = params?.email || params?.customerEmail;
   const phone = params?.phone || params?.customerPhone;
 
-  if (!razorpay_payment_id) {
-    throw new Error('Payment ID is required for verification');
+  if (!razorpay_payment_id && !cfOrderId) {
+    throw new Error('Payment ID or Order ID is required for verification');
   }
 
   // Verify video exists
@@ -334,6 +390,130 @@ async function verifyAndCreateEntitlement(params) {
 
   const normalizedEmail = (email || '').trim().toLowerCase();
   const normalizedPhone = (phone || '').trim();
+
+  // --- 1. CASHFREE SERVER-SIDE VERIFICATION ---
+  if (cfOrderId && !razorpay_signature) {
+    const cfResult = await verifyCashfreeOrder(cfOrderId);
+    if (!cfResult || !cfResult.success) {
+      throw new Error(cfResult?.error || 'Cashfree verification failed');
+    }
+    if (cfResult.order_status !== 'PAID') {
+      throw new Error(`Payment has not been completed. Status is ${cfResult.order_status}`);
+    }
+
+    const paidAmt = parseFloat(cfResult.order_amount);
+    if (isNaN(paidAmt) || paidAmt < 1.00) {
+      throw new Error(`Payment amount ₹${paidAmt} is less than required price`);
+    }
+
+    // Verify video association
+    if (!cfOrderId.includes(`_${vid}_`) && cfResult.order_tags?.video_id && String(cfResult.order_tags.video_id) !== String(vid)) {
+      throw new Error(`Payment was created for video ${cfResult.order_tags.video_id}, cannot unlock video ${vid}`);
+    }
+
+    // Verify this payment has not already been used to unlock a different video
+    const existingOtherVideo = await query.get(
+      `SELECT video_id FROM entitlements 
+       WHERE (razorpay_payment_id = $1 OR razorpay_order_id = $1) AND video_id != $2 LIMIT 1`,
+      [cfOrderId, vid]
+    );
+    if (existingOtherVideo) {
+      throw new Error(`This payment was already used for video ${existingOtherVideo.video_id}. Cannot unlock video ${vid}.`);
+    }
+
+    // Check for existing entitlement for this exact payment (idempotency)
+    const existingEntitlement = await query.get(
+      `SELECT * FROM entitlements 
+       WHERE video_id = $1 AND (razorpay_payment_id = $2 OR razorpay_order_id = $2)
+       LIMIT 1`,
+      [vid, cfOrderId]
+    );
+
+    if (existingEntitlement) {
+      const token = createUserToken({
+        user_id: existingEntitlement.user_id,
+        email: existingEntitlement.customer_email || normalizedEmail
+      });
+      return {
+        success: true,
+        unlocked: true,
+        video_id: vid,
+        video_url: `/api/videos/${vid}/stream`,
+        token: token,
+        entitlement: existingEntitlement,
+        already_verified: true
+      };
+    }
+
+    const effectiveUserId = user_id || 'usr_' + crypto.randomBytes(8).toString('hex');
+    let entitlement = null;
+
+    if (isPostgres) {
+      const upsertSql = `
+        INSERT INTO entitlements 
+          (user_id, video_id, customer_email, customer_phone, razorpay_payment_id, razorpay_order_id, amount, status, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id, video_id) DO UPDATE 
+        SET status = 'active',
+            customer_email = COALESCE(NULLIF(EXCLUDED.customer_email, ''), entitlements.customer_email),
+            customer_phone = COALESCE(NULLIF(EXCLUDED.customer_phone, ''), entitlements.customer_phone),
+            razorpay_payment_id = EXCLUDED.razorpay_payment_id,
+            razorpay_order_id = EXCLUDED.razorpay_order_id,
+            updated_at = CURRENT_TIMESTAMP
+        RETURNING *
+      `;
+      entitlement = await query.get(upsertSql, [
+        effectiveUserId,
+        vid,
+        normalizedEmail,
+        normalizedPhone,
+        cfOrderId,
+        cfOrderId,
+        VIDEO_AMOUNT_PAISE
+      ]);
+
+      try {
+        await query.raw(
+          `INSERT INTO video_entitlements 
+            (user_id, video_id, payment_id, amount, status, purchased_at, customer_email, customer_phone)
+           VALUES ($1, $2, $3, $4, 'active', CURRENT_TIMESTAMP, $5, $6)
+           ON CONFLICT (user_id, video_id) DO UPDATE 
+           SET status = 'active',
+               payment_id = EXCLUDED.payment_id,
+               customer_email = COALESCE(NULLIF(EXCLUDED.customer_email, ''), video_entitlements.customer_email),
+               customer_phone = COALESCE(NULLIF(EXCLUDED.customer_phone, ''), video_entitlements.customer_phone),
+               purchased_at = CURRENT_TIMESTAMP`,
+          [effectiveUserId, vid, cfOrderId, VIDEO_AMOUNT_PAISE, normalizedEmail || null, normalizedPhone || null]
+        );
+      } catch (_) {}
+    } else {
+      await query.run(
+        `INSERT OR REPLACE INTO entitlements 
+          (user_id, video_id, customer_email, customer_phone, razorpay_payment_id, razorpay_order_id, amount, status, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', CURRENT_TIMESTAMP)`,
+        [effectiveUserId, vid, normalizedEmail, normalizedPhone, cfOrderId, cfOrderId, VIDEO_AMOUNT_PAISE]
+      );
+      entitlement = await query.get(
+        'SELECT * FROM entitlements WHERE user_id = $1 AND video_id = $2',
+        [effectiveUserId, vid]
+      );
+    }
+
+    const token = createUserToken({
+      user_id: effectiveUserId,
+      email: normalizedEmail
+    });
+
+    return {
+      success: true,
+      unlocked: true,
+      video_id: vid,
+      video_url: `/api/videos/${vid}/stream`,
+      token: token,
+      entitlement: entitlement
+    };
+  }
+
   const isRealRazorpay = isRazorpayConfigured() && razorpayInstance;
 
   // Verify this payment has not already been used to unlock a different video

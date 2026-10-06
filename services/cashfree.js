@@ -90,7 +90,8 @@ async function createCashfreeOrder(options = {}) {
         order_meta: {
           return_url: returnUrl
         },
-        order_note: 'Cashfree Sandbox Test Demo Order'
+        order_note: options.orderNote || 'Cashfree Payment Order',
+        ...(options.orderTags && typeof options.orderTags === 'object' ? { order_tags: options.orderTags } : {})
       };
 
       const response = await fetch(`${baseUrl}/orders`, {
@@ -176,15 +177,15 @@ async function verifyCashfreeOrder(orderId) {
   // Check simulated store first
   if (mockOrderStore.has(orderId)) {
     const record = mockOrderStore.get(orderId);
-    // Mark as PAID on verification in sandbox simulation
-    record.order_status = 'PAID';
+    const isPaid = (record.order_status === 'PAID');
     return {
       success: true,
       order_id: record.order_id,
       order_status: record.order_status,
       order_amount: record.order_amount,
       order_currency: record.order_currency,
-      is_paid: true,
+      order_tags: record.order_tags || null,
+      is_paid: isPaid,
       environment: 'sandbox',
       is_simulated: true
     };
@@ -222,6 +223,7 @@ async function verifyCashfreeOrder(orderId) {
         order_amount: data.order_amount,
         order_currency: data.order_currency,
         cf_order_id: data.cf_order_id,
+        order_tags: data.order_tags || null,
         is_paid: isPaid,
         environment: getEnvironment(),
         is_simulated: false
@@ -245,5 +247,6 @@ module.exports = {
   isCashfreeConfigured,
   getCashfreePublicConfig,
   createCashfreeOrder,
-  verifyCashfreeOrder
+  verifyCashfreeOrder,
+  mockOrderStore
 };

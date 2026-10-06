@@ -1090,7 +1090,8 @@ app.post(['/api/entitlements/create-order', '/api/payment/create-order'], async 
       video_id,
       user_id: userId,
       email: email || ctx.email,
-      phone
+      phone,
+      return_url: req.body.return_url || `${req.protocol}://${req.get('host')}/video/${video_id}?cf_order_id={order_id}`
     });
 
     res.json(orderData);
@@ -1104,8 +1105,9 @@ app.post(['/api/entitlements/create-order', '/api/payment/create-order'], async 
 app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) => {
   try {
     const video_id = req.body.video_id || req.body.videoId;
-    const razorpay_payment_id = req.body.razorpay_payment_id || req.body.paymentId || req.body.razorpayPaymentId;
-    const razorpay_order_id = req.body.razorpay_order_id || req.body.orderId || req.body.razorpayOrderId;
+    const order_id = req.body.order_id || req.body.cf_order_id || req.body.orderId || req.body.razorpay_order_id;
+    const razorpay_payment_id = req.body.razorpay_payment_id || req.body.paymentId || req.body.razorpayPaymentId || order_id;
+    const razorpay_order_id = req.body.razorpay_order_id || req.body.orderId || order_id;
     const razorpay_signature = req.body.razorpay_signature || req.body.signature || req.body.razorpaySignature;
     const email = req.body.email || req.body.customerEmail || req.body.customer_email;
     const phone = req.body.phone || req.body.customerPhone || req.body.customer_phone;
@@ -1113,8 +1115,8 @@ app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) =
     if (!video_id) {
       return res.status(400).json({ error: 'video_id is required for verification', unlocked: false });
     }
-    if (!razorpay_payment_id) {
-      return res.status(400).json({ error: 'Payment ID is required for verification', unlocked: false });
+    if (!razorpay_payment_id && !order_id) {
+      return res.status(400).json({ error: 'Payment ID or Order ID is required for verification', unlocked: false });
     }
 
     // Verify client has not tampered with video_id vs initiated checkout session
@@ -1132,6 +1134,8 @@ app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) =
 
     const verification = await verifyAndCreateEntitlement({
       video_id,
+      order_id,
+      cf_order_id: order_id,
       razorpay_payment_id,
       razorpay_order_id,
       razorpay_signature,
@@ -1153,7 +1157,7 @@ app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) =
 
     res.json(verification);
   } catch (err) {
-    console.error('Error verifying video payment:', err);
+    console.error('Error verifying video payment:', err.message);
     res.status(400).json({ error: err.message || 'Server payment verification failed', unlocked: false });
   }
 });
