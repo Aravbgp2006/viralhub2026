@@ -615,7 +615,7 @@
       if (subBadge) {
         subBadge.style.display = 'inline-flex';
         subBadge.className = 'badge-premium-active';
-        subBadge.textContent = '✨ Video Unlocked';
+        subBadge.textContent = '✨ Premium Active';
       }
 
       const effectiveUrl = streamUrl || `/api/videos/${currentVideoId}/stream`;
@@ -775,15 +775,16 @@
 
         clearTimeout(safetyTimeout);
 
-        // Ensure Cashfree SDK is loaded
+        // Ensure Cashfree SDK is loaded with correct mode (production for live, sandbox for test)
         let cashfree = null;
+        const sdkMode = (orderData.environment === 'production' || orderData.environment === 'live' || config?.environment === 'production') ? 'production' : (orderData.environment || 'production');
         if (typeof window.Cashfree === 'function') {
-          cashfree = window.Cashfree({ mode: orderData.environment || 'sandbox' });
+          cashfree = window.Cashfree({ mode: sdkMode });
         } else {
           for (let i = 0; i < 30; i++) {
             await new Promise(r => setTimeout(r, 100));
             if (typeof window.Cashfree === 'function') {
-              cashfree = window.Cashfree({ mode: orderData.environment || 'sandbox' });
+              cashfree = window.Cashfree({ mode: sdkMode });
               break;
             }
           }

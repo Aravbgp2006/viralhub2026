@@ -67,7 +67,7 @@ function getPublicEntitlementConfig(videoId) {
     currency: 'INR',
     is_configured: true,
     cashfree_configured: isCfConfigured,
-    environment: cfConfig.environment || 'sandbox',
+    environment: cfConfig.environment || 'production',
     has_payment_link: hasLink,
     payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null,
     test_mode: false
@@ -285,7 +285,7 @@ async function createOrderForVideo(params) {
           success: true,
           order_id: cfOrder.order_id,
           payment_session_id: cfOrder.payment_session_id,
-          environment: cfOrder.environment || 'sandbox',
+          environment: cfOrder.environment || 'production',
           key_id: RAZORPAY_KEY_ID || 'rzp_test_mock_viralhub',
           amount: VIDEO_AMOUNT_PAISE,
           amount_inr: 9.00,

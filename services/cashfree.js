@@ -25,12 +25,21 @@ function getSecretKey() {
 }
 
 function getEnvironment() {
-  const env = (process.env.CASHFREE_ENV || process.env.ENV || 'sandbox').trim().toLowerCase();
+  const env = (process.env.CASHFREE_ENV || process.env.ENV || '').trim().toLowerCase();
   const appId = getAppId();
+  // Live / production environment explicitly specified
+  if (env === 'production' || env === 'prod' || env === 'live') {
+    return 'production';
+  }
+  // Test / sandbox environment explicitly specified or TEST App ID
   if (appId.startsWith('TEST') || env === 'sandbox' || env === 'test') {
     return 'sandbox';
   }
-  return env === 'production' ? 'production' : 'sandbox';
+  // In production deployments (Vercel), default to production
+  if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+    return 'production';
+  }
+  return 'sandbox';
 }
 
 function getBaseUrl() {
@@ -54,9 +63,10 @@ function isCashfreeConfigured() {
 function getCashfreePublicConfig() {
   const configured = isCashfreeConfigured();
   const appId = getAppId();
+  const env = getEnvironment();
   return {
     configured,
-    environment: getEnvironment(),
+    environment: env,
     // Expose masked indicator only if configured
     app_id_preview: configured && appId.length > 6 ? `${appId.slice(0, 4)}...${appId.slice(-3)}` : null
   };
@@ -76,10 +86,34 @@ async function createCashfreeOrder(options = {}) {
   const customerName = options.customerName || 'Sandbox Test User';
   const returnUrl = options.returnUrl || `http://localhost:3000/payment-test?order_id=${orderId}`;
 
-  // Log non-sensitive order creation intent
-  console.log(`[Cashfree Sandbox Demo] Creating test order: ${orderId}, amount: ₹${amount}`);
+  const env = getEnvironment();
+  const configured = isCashfreeConfigured();
 
-  if (isCashfreeConfigured()) {
+  // Log non-sensitive order creation intent
+  console.log(`[Cashfree Payment] Creating order: ${orderId}, amount: ₹${amount}, env: ${env}`);
+
+  // In production, live credentials are strictly mandatory. Never fall back to simulated orders.
+  if (env === 'production') {
+    if (!configured) {
+      console.error('[Cashfree Production Error] Live credentials (CASHFREE_APP_ID / CASHFREE_SECRET_KEY) are not configured.');
+      return {
+        success: false,
+        error: 'Cashfree live credentials are not configured in Vercel. Please configure CASHFREE_APP_ID and CASHFREE_SECRET_KEY in production.',
+        code: 'CREDENTIALS_MISSING'
+      };
+    }
+    const appId = getAppId();
+    if (appId.startsWith('TEST')) {
+      console.error('[Cashfree Production Error] Sandbox TEST App ID detected in production mode.');
+      return {
+        success: false,
+        error: 'Cashfree is set to live production mode, but a sandbox TEST App ID is configured. Please provide live production credentials.',
+        code: 'ENVIRONMENT_MISMATCH'
+      };
+    }
+  }
+
+  if (configured) {
     const baseUrl = getBaseUrl();
     try {
       const payload = {
@@ -130,7 +164,7 @@ async function createCashfreeOrder(options = {}) {
         order_amount: data.order_amount,
         order_currency: data.order_currency,
         cf_order_id: data.cf_order_id,
-        environment: getEnvironment(),
+        environment: env,
         is_simulated: false
       };
     } catch (err) {
@@ -141,8 +175,14 @@ async function createCashfreeOrder(options = {}) {
       };
     }
   } else {
-    // When credentials are not yet entered, generate a valid simulated sandbox session
-    // so tests and the demonstration UI work cleanly.
+    // When credentials are not yet entered, generate a simulated sandbox session ONLY in sandbox test mode
+    if (env === 'production') {
+      return {
+        success: false,
+        error: 'Cashfree live production credentials are not configured.'
+      };
+    }
+
     console.log('[Cashfree Sandbox Demo] No live credentials configured. Running in sandbox simulation mode.');
     const simulatedSessionId = `session_sandbox_demo_${Date.now()}_${crypto.randomBytes(12).toString('hex')}`;
     mockOrderStore.set(orderId, {
@@ -177,10 +217,11 @@ async function verifyCashfreeOrder(orderId) {
     return { success: false, error: 'order_id is required' };
   }
 
-  console.log(`[Cashfree Sandbox Demo] Verifying order status for: ${orderId}`);
+  const env = getEnvironment();
+  console.log(`[Cashfree Payment] Verifying order status for: ${orderId}, env: ${env}`);
 
-  // Check simulated store first
-  if (mockOrderStore.has(orderId)) {
+  // In production mode, NEVER use mockOrderStore
+  if (env !== 'production' && mockOrderStore.has(orderId)) {
     const record = mockOrderStore.get(orderId);
     const isPaid = (record.order_status === 'PAID');
     return {
@@ -230,7 +271,7 @@ async function verifyCashfreeOrder(orderId) {
         cf_order_id: data.cf_order_id,
         order_tags: data.order_tags || null,
         is_paid: isPaid,
-        environment: getEnvironment(),
+        environment: env,
         is_simulated: false
       };
     } catch (err) {
