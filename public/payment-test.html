@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cashfree Sandbox Payment Demo (₹1 Test)</title>
+  <meta name="description" content="Generic isolated Cashfree Sandbox test payment demonstration with server-side order creation and verification.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%236366f1%22/><text y=%2265%22 font-size=%2250%22 x=%2226%22 fill=%22white%22 font-family=%22sans-serif%22 font-weight=%22bold%22>₹</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Cashfree JS SDK v3 -->
+  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --card-bg: rgba(17, 24, 39, 0.85);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --accent-primary: #6366f1;
+      --accent-hover: #4f46e5;
+      --accent-glow: rgba(99, 102, 241, 0.35);
+      --accent-emerald: #10b981;
+      --text-main: #f9fafb;
+      --text-muted: #9ca3af;
+      --terminal-bg: #030712;
+      --terminal-border: rgba(255, 255, 255, 0.06);
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 10% 20%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
+        radial-gradient(at 90% 80%, rgba(16, 185, 129, 0.1) 0px, transparent 50%);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    /* Top Badge & Header */
+    .header-box {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(99, 102, 241, 0.12);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #a5b4fc;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      margin-bottom: 12px;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: #34d399;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #34d399;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    .page-title {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    .page-subtitle {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.6;
+      max-width: 580px;
+      margin: 0 auto;
+    }
+
+    /* Main Card */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .card-section-title {
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #94a3b8;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Price Preview Box */
+    .price-box {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .item-desc {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .item-name {
+      font-weight: 700;
+      font-size: 16px;
+      color: #ffffff;
+    }
+
+    .item-meta {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .price-val {
+      font-size: 28px;
+      font-weight: 800;
+      color: #38bdf8;
+      display: flex;
+      align-items: baseline;
+      gap: 2px;
+    }
+
+    .price-currency {
+      font-size: 18px;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    /* Form Fields */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 600px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #cbd5e1;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .form-input {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-family: var(--font-sans);
+      color: #ffffff;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .form-input:focus {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+    }
+
+    /* Pay Button */
+    .btn-pay {
+      width: 100%;
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 700;
+      font-family: var(--font-sans);
+      padding: 14px 24px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 4px 14px var(--accent-glow);
+      transition: all 0.2s ease;
+    }
+
+    .btn-pay:hover:not(:disabled) {
+      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px var(--accent-glow);
+    }
+
+    .btn-pay:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #ffffff;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Status Banner */
+    .status-banner {
+      display: none;
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .status-banner.success {
+      display: block;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #6ee7b7;
+    }
+
+    .status-banner.error {
+      display: block;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+
+    .status-banner.info {
+      display: block;
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #93c5fd;
+    }
+
+    /* Terminal Console */
+    .terminal-container {
+      background: var(--terminal-bg);
+      border: 1px solid var(--terminal-border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-top: 24px;
+    }
+
+    .terminal-header {
+      background: rgba(255, 255, 255, 0.03);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--terminal-border);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #eab308; }
+    .dot-green { background: #22c55e; }
+
+    .terminal-logs {
+      padding: 16px;
+      max-height: 220px;
+      overflow-y: auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.7;
+      color: #cbd5e1;
+    }
+
+    .log-line {
+      display: flex;
+      gap: 8px;
+    }
+    .log-time { color: #64748b; }
+    .log-tag { font-weight: 600; }
+    .tag-info { color: #38bdf8; }
+    .tag-success { color: #4ade80; }
+    .tag-warn { color: #fbbf24; }
+    .tag-error { color: #f87171; }
+
+    /* Footer Security Callout */
+    .security-callout {
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 16px;
+    }
+
+    .security-callout strong {
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <div class="header-box">
+      <div class="badge-pill">
+        <span class="pulse-dot"></span>
+        <span>Cashfree Sandbox PG Demo</span>
+      </div>
+      <h1 class="page-title">Generic Payment Test</h1>
+      <p class="page-subtitle">
+        A completely isolated payment demo utilizing Cashfree Sandbox API and JS SDK v3.
+        Does not interact with videos, database entitlements, or production content.
+      </p>
+    </div>
+
+    <!-- Main Card -->
+    <div class="card">
+      <div class="card-section-title">
+        <span>Order Specifications</span>
+        <span id="gatewayStatus" style="font-size: 11px; color: #a5b4fc;">Mode: Sandbox (v2023-08-01)</span>
+      </div>
+
+      <!-- Item Preview -->
+      <div class="price-box">
+        <div class="item-desc">
+          <span class="item-name">Sandbox Gateway Verification</span>
+          <span class="item-meta">Generic standalone ₹1.00 test transaction</span>
+        </div>
+        <div class="price-val">
+          <span class="price-currency">₹</span>
+          <span id="displayAmount">1.00</span>
+        </div>
+      </div>
+
+      <!-- Customer Test Fields -->
+      <form id="paymentTestForm" onsubmit="handleStartPayment(event)">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="custName">Customer Name</label>
+            <input class="form-input" type="text" id="custName" value="Sandbox Demo User" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="custPhone">Customer Phone</label>
+            <input class="form-input" type="tel" id="custPhone" value="9999999999" pattern="[0-9]{10}" required>
+          </div>
+          <div class="form-group full-width">
+            <label class="form-label" for="custEmail">Customer Email</label>
+            <input class="form-input" type="email" id="custEmail" value="sandbox.test@cashfree.com" required>
+          </div>
+        </div>
+
+        <button type="submit" id="btnPay" class="btn-pay">
+          <span class="spinner" id="paySpinner"></span>
+          <span id="payBtnText">Pay ₹1.00 via Cashfree Sandbox</span>
+        </button>
+      </form>
+
+      <!-- Simulation Action for quick offline/test-suite triggers -->
+      <div id="simulatedActionBox" style="display: none; margin-top: 16px; text-align: center;">
+        <button type="button" id="btnSimulateComplete" onclick="handleSimulateVerification()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 8px 16px; border-radius: 8px; font-size: 12px; cursor: pointer;">
+          ⚡ Simulate Sandbox Payment Completion
+        </button>
+      </div>
+
+      <!-- Status Banner -->
+      <div id="statusBanner" class="status-banner"></div>
+    </div>
+
+    <!-- Live Step Console -->
+    <div class="terminal-container">
+      <div class="terminal-header">
+        <div class="terminal-dots">
+          <span class="terminal-dot dot-red"></span>
+          <span class="terminal-dot dot-yellow"></span>
+          <span class="terminal-dot dot-green"></span>
+        </div>
+        <span>Payment Event Stream</span>
+        <span id="activeOrderId" style="font-size: 11px; color: #64748b;">No active order</span>
+      </div>
+      <div class="terminal-logs" id="terminalLogs">
+        <div class="log-line">
+          <span class="log-time">[Init]</span>
+          <span class="log-tag tag-info">READY</span>
+          <span>Cashfree Sandbox Payment Demo loaded. Click button to begin ₹1 test.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security Callout -->
+    <div class="security-callout">
+      🛡️ <strong>Zero Secret Exposure:</strong> <code>CASHFREE_SECRET_KEY</code> is kept strictly on the backend. Never logged or exposed.
+    </div>
+  </div>
+
+  <script>
+    // Initialize state
+    let currentOrderId = null;
+    let currentSessionId = null;
+    let cashfreeSdk = null;
+
+    // Log helper for terminal
+    function logEvent(type, tag, message) {
+      const logs = document.getElementById('terminalLogs');
+      const timeStr = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      div.className = 'log-line';
+
+      let tagClass = 'tag-info';
+      if (type === 'success') tagClass = 'tag-success';
+      if (type === 'error') tagClass = 'tag-error';
+      if (type === 'warn') tagClass = 'tag-warn';
+
+      div.innerHTML = `
+        <span class="log-time">[${timeStr}]</span>
+        <span class="log-tag ${tagClass}">${tag}</span>
+        <span>${escapeHtml(message)}</span>
+      `;
+      logs.appendChild(div);
+      logs.scrollTop = logs.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+      });
+    }
+
+    function showStatus(type, message) {
+      const banner = document.getElementById('statusBanner');
+      banner.className = `status-banner ${type}`;
+      banner.innerHTML = message;
+    }
+
+    function setLoading(isLoading) {
+      const btn = document.getElementById('btnPay');
+      const spinner = document.getElementById('paySpinner');
+      const text = document.getElementById('payBtnText');
+
+      if (isLoading) {
+        btn.disabled = true;
+        spinner.style.display = 'inline-block';
+        text.textContent = 'Processing Sandbox Checkout...';
+      } else {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        text.textContent = 'Pay ₹1.00 via Cashfree Sandbox';
+      }
+    }
+
+    // Step 1: Initialize Cashfree SDK v3 on page load
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        if (typeof Cashfree !== 'undefined') {
+          cashfreeSdk = Cashfree({ mode: 'sandbox' });
+          logEvent('info', 'SDK', 'Cashfree JS SDK v3 initialized in sandbox mode.');
+        } else {
+          logEvent('warn', 'SDK', 'Cashfree SDK script loading deferred or unavailable. Fallback supported.');
+        }
+
+        // Fetch server public config
+        const cfgRes = await fetch('/api/test-payment/config');
+        if (cfgRes.ok) {
+          const cfg = await cfgRes.json();
+          document.getElementById('gatewayStatus').textContent = 
+            `Mode: ${cfg.environment || 'sandbox'} (${cfg.configured ? 'Configured' : 'Simulation Mode'})`;
+          logEvent('info', 'CONFIG', `Server public configuration: mode=${cfg.environment}, configured=${cfg.configured}`);
+        }
+
+        // Check if returning from redirect (e.g. ?order_id=cf_test_...)
+        const urlParams = new URLSearchParams(window.location.search);
+        const returnOrderId = urlParams.get('order_id');
+        if (returnOrderId) {
+          logEvent('info', 'RETURN', `Detected return URL with order_id: ${returnOrderId}`);
+          await verifyOrder(returnOrderId);
+        }
+      } catch (err) {
+        logEvent('error', 'INIT_ERR', err.message);
+      }
+    });
+
+    // Step 2: Handle button click -> Create Order
+    async function handleStartPayment(event) {
+      event.preventDefault();
+      setLoading(true);
+      showStatus('info', 'Creating Cashfree sandbox order on server...');
+
+      const name = document.getElementById('custName').value.trim();
+      const phone = document.getElementById('custPhone').value.trim();
+      const email = document.getElementById('custEmail').value.trim();
+
+      try {
+        logEvent('info', 'ORDER_REQ', 'Sending POST /api/test-payment/create-order (Amount: ₹1.00)');
+
+        const response = await fetch('/api/test-payment/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: 1.00,
+            customer_name: name,
+            customer_phone: phone,
+            customer_email: email,
+            return_url: `${window.location.origin}/payment-test?order_id={order_id}`
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Failed to create Cashfree order');
+        }
+
+        currentOrderId = data.order_id;
+        currentSessionId = data.payment_session_id;
+
+        document.getElementById('activeOrderId').textContent = `Order: ${currentOrderId}`;
+        logEvent('success', 'ORDER_CREATED', `Order ID: ${currentOrderId}`);
+        logEvent('info', 'SESSION_ID', `Payment Session ID: ${currentSessionId.substring(0, 18)}...`);
+
+        // Check if Cashfree JS SDK is available to open checkout modal
+        if (cashfreeSdk && currentSessionId && !data.is_simulated) {
+          logEvent('info', 'CHECKOUT', 'Invoking cashfreeSdk.checkout() with paymentSessionId...');
+          showStatus('info', 'Opening Cashfree Sandbox checkout modal...');
+
+          try {
+            const checkoutResult = await cashfreeSdk.checkout({
+              paymentSessionId: currentSessionId,
+              redirectTarget: '_modal'
+            });
+
+            logEvent('info', 'CHECKOUT_RES', 'Modal closed or returned. Triggering server verification.');
+            await verifyOrder(currentOrderId);
+          } catch (sdkErr) {
+            logEvent('warn', 'SDK_WARNING', `SDK interaction ended: ${sdkErr.message || 'Modal dismissed'}`);
+            await verifyOrder(currentOrderId);
+          }
+        } else {
+          // In simulated sandbox mode or offline
+          logEvent('warn', 'SANDBOX_SIM', 'Running in simulated sandbox mode. Showing verification trigger.');
+          document.getElementById('simulatedActionBox').style.display = 'block';
+          showStatus('info', `Order created (${currentOrderId}). Click below to complete sandbox verification.`);
+        }
+      } catch (err) {
+        console.error(err);
+        logEvent('error', 'PAY_ERR', err.message);
+        showStatus('error', `Payment initiation failed: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Step 3: Trigger Server-Side Order Verification
+    async function verifyOrder(orderId) {
+      if (!orderId) return;
+
+      logEvent('info', 'VERIFY_REQ', `Calling POST /api/test-payment/verify-order for ${orderId}`);
+      showStatus('info', 'Verifying payment status on server...');
+
+      try {
+        const response = await fetch('/api/test-payment/verify-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Server order verification failed');
+        }
+
+        logEvent('success', 'VERIFIED', `Server verified status: ${data.order_status} (is_paid: ${Boolean(data.is_paid)})`);
+
+        if (data.is_paid || data.order_status === 'PAID') {
+          showStatus('success', `
+            <strong>Payment Verified Successfully!</strong><br>
+            Order ID: <code>${data.order_id}</code><br>
+            Status: <span style="color:#10b981; font-weight:700;">PAID</span> • Amount: ₹${data.order_amount || '1.00'}<br>
+            <span style="font-size:12px; color:#cbd5e1;">Generic sandbox test verified. Production entitlements untouched.</span>
+          `);
+        } else {
+          showStatus('info', `
+            Order status: <strong>${data.order_status}</strong><br>
+            Order ID: <code>${data.order_id}</code>
+          `);
+        }
+
+        document.getElementById('simulatedActionBox').style.display = 'none';
+      } catch (err) {
+        logEvent('error', 'VERIFY_ERR', err.message);
+        showStatus('error', `Verification failed: ${err.message}`);
+      }
+    }
+
+    async function handleSimulateVerification() {
+      if (currentOrderId) {
+        await verifyOrder(currentOrderId);
+      }
+    }
+  </script>
+</body>
+</html>

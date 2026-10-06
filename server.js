@@ -41,6 +41,12 @@ const {
   restoreUserAccess,
   getAdminEntitlements
 } = require('./services/entitlement');
+const {
+  isCashfreeConfigured,
+  getCashfreePublicConfig,
+  createCashfreeOrder,
+  verifyCashfreeOrder
+} = require('./services/cashfree');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -344,6 +350,11 @@ app.get(['/video', '/video/'], (req, res) => {
 // Route alias for /js/admin.js -> public/admin.js
 app.get('/js/admin.js', (req, res) => {
   res.sendFile(getPublicPath('admin.js'));
+});
+
+// Standalone Cashfree Sandbox Demo Page (/payment-test)
+app.get(['/payment-test', '/payment-test.html'], (req, res) => {
+  res.sendFile(getPublicPath('payment-test.html'));
 });
 
 // Secure Thumbnail Delivery Endpoint
@@ -1245,6 +1256,82 @@ app.post(['/api/entitlements/restore', '/api/user/restore'], async (req, res) =>
   } catch (err) {
     console.error('Error restoring entitlements:', err);
     res.status(500).json({ error: err.message || 'Failed to restore access', restored: false });
+  }
+});
+
+// ==========================================================================
+// GENERIC CASHFREE SANDBOX PAYMENT DEMO (SEPARATE FROM CONTENT / PAYWALL)
+// ==========================================================================
+
+// Public Configuration endpoint (environment & configuration status, never returns secret)
+app.get('/api/test-payment/config', (req, res) => {
+  const config = getCashfreePublicConfig();
+  res.json({
+    success: true,
+    ...config
+  });
+});
+
+// POST /api/test-payment/create-order
+// Server creates a Cashfree sandbox order and returns payment_session_id and order_id
+app.post('/api/test-payment/create-order', async (req, res) => {
+  try {
+    const {
+      amount,
+      customer_phone,
+      customer_email,
+      customer_name,
+      return_url
+    } = req.body || {};
+
+    const testAmount = amount !== undefined ? amount : 1.00;
+
+    const result = await createCashfreeOrder({
+      amount: testAmount,
+      customerPhone: customer_phone,
+      customerEmail: customer_email,
+      customerName: customer_name,
+      returnUrl: return_url
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json({
+      success: true,
+      payment_session_id: result.payment_session_id,
+      order_id: result.order_id,
+      order_status: result.order_status,
+      order_amount: result.order_amount,
+      order_currency: result.order_currency,
+      environment: result.environment,
+      is_simulated: Boolean(result.is_simulated)
+    });
+  } catch (err) {
+    console.error('Error in /api/test-payment/create-order:', err.message);
+    res.status(500).json({ success: false, error: 'Internal server error creating test payment order' });
+  }
+});
+
+// POST & GET /api/test-payment/verify-order
+// Server verifies payment status using order_id
+app.all(['/api/test-payment/verify-order', '/api/test-payment/verify-order/:order_id'], async (req, res) => {
+  try {
+    const order_id = req.body?.order_id || req.query?.order_id || req.params?.order_id;
+    if (!order_id) {
+      return res.status(400).json({ success: false, error: 'order_id is required' });
+    }
+
+    const result = await verifyCashfreeOrder(order_id);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error in /api/test-payment/verify-order:', err.message);
+    res.status(500).json({ success: false, error: 'Internal server error verifying test order' });
   }
 });
 
