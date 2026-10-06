@@ -141,8 +141,8 @@
          ==================================================================== -->
     <div class="admin-title-row" style="margin-top: 48px; border-top: 1px solid var(--border-color); padding-top: 36px;">
       <div>
-        <h2 class="admin-page-title" style="font-size: 1.5rem;">Featured Homepage Videos</h2>
-        <p class="admin-page-desc">Curate exactly up to 6 featured short videos displayed in the homepage carousel (order preserved)</p>
+        <h2 class="admin-page-title" style="font-size: 1.5rem;">Featured Homepage Carousel</h2>
+        <p class="admin-page-desc">Upload new videos directly from gallery, adjust 9:16 framing, zoom, and pan (order: 1 → 2 → 3 → 4 → 5 → 6)</p>
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
         <button type="button" class="action-icon-btn" id="btnClearAllFeatured" style="color: #ef4444; border-color: rgba(239,68,68,0.3);">
@@ -150,7 +150,7 @@
         </button>
         <button type="button" class="btn-primary-dark" id="btnSaveFeatured">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-          <span id="btnSaveFeaturedText">Save Featured Videos</span>
+          <span id="btnSaveFeaturedText">Save Carousel Slots</span>
         </button>
       </div>
     </div>
@@ -593,27 +593,66 @@
   </div>
 
   <!-- ====================================================================
-       MODAL 5: FEATURED VIDEO PICKER
+       MODAL 5: FEATURED VIDEO POSITIONING & ZOOM EDITOR
        ==================================================================== -->
-  <div class="modal-overlay" id="featuredVideoPickerModal" role="dialog" aria-modal="true" aria-labelledby="pickerModalTitle">
-    <div class="modal-card" style="max-width: 600px;">
+  <div class="modal-overlay featured-editor-overlay" id="featuredVideoEditorModal" role="dialog" aria-modal="true" aria-labelledby="featuredEditorTitle">
+    <div class="modal-card featured-editor-card">
       <div class="modal-header">
         <div>
-          <h2 class="modal-title" id="pickerModalTitle">Select Video for <span id="pickerSlotLabel">Slot 1</span></h2>
-          <p class="modal-subtitle">Pick from existing published videos to assign to this featured slot</p>
+          <h2 class="modal-title" id="featuredEditorTitle">Position & Zoom Featured Video</h2>
+          <p class="modal-subtitle">Slot <span id="featuredEditorSlotLabel">1</span> · Drag to pan · Zoom slider · Live blurred background</p>
         </div>
-        <button type="button" class="icon-btn" id="btnCloseFeaturedPicker" aria-label="Close video picker">✕</button>
+        <button type="button" class="icon-btn" id="btnCloseFeaturedEditor" aria-label="Close editor">✕</button>
       </div>
-      <div class="modal-body" style="padding: 16px;">
-        <div style="margin-bottom: 14px;">
-          <input type="search" id="featuredPickerSearchInput" class="form-input" placeholder="Search videos by title or category..." autocomplete="off">
+
+      <div class="modal-body featured-editor-body">
+        <!-- Live Preview Viewport matching homepage carousel container -->
+        <div class="featured-editor-viewport" id="featuredEditorViewport">
+          <div class="editor-bg-layer" aria-hidden="true">
+            <video class="editor-bg-video" id="editorBgVideo" playsinline muted loop></video>
+          </div>
+          <div class="editor-fg-container">
+            <div class="editor-fg-frame" id="editorFgFrame">
+              <video class="editor-fg-video" id="editorFgVideo" playsinline muted loop></video>
+            </div>
+          </div>
         </div>
-        <div class="picker-video-list" id="pickerVideoList" style="max-height: 400px; overflow-y: auto;">
-          <!-- Dynamically populated video items -->
+
+        <!-- Controls Bar -->
+        <div class="featured-editor-controls">
+          <div class="featured-zoom-group">
+            <label class="control-label" for="editorZoomSlider">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <span>Zoom</span>
+            </label>
+            <button type="button" class="control-btn" id="btnEditorZoomOut" title="Zoom Out">−</button>
+            <input type="range" id="editorZoomSlider" class="zoom-range-input" min="0.5" max="3.0" step="0.01" value="1.0">
+            <button type="button" class="control-btn" id="btnEditorZoomIn" title="Zoom In">+</button>
+            <span class="zoom-value-text" id="editorZoomValueText">100%</span>
+          </div>
+
+          <div class="featured-editor-help">
+            <span>🖱️ Drag video to pan left/right/up/down</span>
+            <span id="editorPanCoords">Pan: 0px, 0px</span>
+          </div>
+
+          <!-- Upload Progress (shown during file upload) -->
+          <div class="featured-upload-progress" id="featuredUploadProgress">
+            <div class="featured-upload-progress-fill" id="featuredUploadProgressFill"></div>
+          </div>
         </div>
       </div>
+
       <div class="modal-footer">
-        <button type="button" class="btn-modal-cancel" id="btnCancelFeaturedPicker">Cancel</button>
+        <button type="button" class="btn-modal-cancel" id="btnCancelFeaturedEditor">Cancel</button>
+        <button type="button" class="btn-modal-reset" id="btnResetFeaturedEditor">Reset</button>
+        <button type="button" class="btn-primary-dark" id="btnSaveFeaturedEditor">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          <span id="btnSaveFeaturedEditorText">Save Slot</span>
+        </button>
       </div>
     </div>
   </div>

@@ -343,6 +343,23 @@ async function initDatabase() {
           CREATE INDEX IF NOT EXISTS idx_featured_videos_pos ON featured_home_videos (position);
           CREATE INDEX IF NOT EXISTS idx_featured_videos_active ON featured_home_videos (is_active);
           CREATE INDEX IF NOT EXISTS idx_featured_videos_vid ON featured_home_videos (video_id);
+
+          -- Create PostgreSQL featured_carousel_slots table (dedicated independent carousel assets)
+          CREATE TABLE IF NOT EXISTS featured_carousel_slots (
+            id SERIAL PRIMARY KEY,
+            slot_position INTEGER NOT NULL UNIQUE CHECK (slot_position >= 1 AND slot_position <= 6),
+            video_url TEXT NOT NULL,
+            thumbnail_url TEXT,
+            zoom REAL NOT NULL DEFAULT 1.0,
+            pan_x REAL NOT NULL DEFAULT 0.0,
+            pan_y REAL NOT NULL DEFAULT 0.0,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_fcarousel_pos ON featured_carousel_slots (slot_position);
+          CREATE INDEX IF NOT EXISTS idx_fcarousel_active ON featured_carousel_slots (is_active);
         `);
         break;
       } catch (err) {
@@ -361,6 +378,7 @@ async function initDatabase() {
       await seedInitialVideos();
     }
     await seedFeaturedVideosIfEmpty();
+    await seedFeaturedCarouselSlotsIfEmpty();
   } else {
     // Local SQLite fallback schema
     const createTableSql = `
@@ -448,6 +466,23 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_featured_videos_pos ON featured_home_videos (position);
       CREATE INDEX IF NOT EXISTS idx_featured_videos_active ON featured_home_videos (is_active);
       CREATE INDEX IF NOT EXISTS idx_featured_videos_vid ON featured_home_videos (video_id);
+
+      -- Create SQLite featured_carousel_slots table (dedicated independent carousel assets)
+      CREATE TABLE IF NOT EXISTS featured_carousel_slots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slot_position INTEGER NOT NULL UNIQUE CHECK (slot_position >= 1 AND slot_position <= 6),
+        video_url TEXT NOT NULL,
+        thumbnail_url TEXT,
+        zoom REAL NOT NULL DEFAULT 1.0,
+        pan_x REAL NOT NULL DEFAULT 0.0,
+        pan_y REAL NOT NULL DEFAULT 0.0,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_fcarousel_pos ON featured_carousel_slots (slot_position);
+      CREATE INDEX IF NOT EXISTS idx_fcarousel_active ON featured_carousel_slots (is_active);
     `;
 
     await query.raw(createTableSql);
@@ -485,6 +520,7 @@ async function initDatabase() {
       await seedInitialVideos();
     }
     await seedFeaturedVideosIfEmpty();
+    await seedFeaturedCarouselSlotsIfEmpty();
   }
 }
 
@@ -522,6 +558,56 @@ async function seedFeaturedVideosIfEmpty() {
     }
   } catch (err) {
     console.warn('Notice: seedFeaturedVideosIfEmpty encountered:', err.message);
+  }
+}
+
+async function seedFeaturedCarouselSlotsIfEmpty() {
+  try {
+    const slotCount = await query.get(
+      isPostgres
+        ? 'SELECT COUNT(*)::int AS total FROM featured_carousel_slots'
+        : 'SELECT COUNT(*) AS total FROM featured_carousel_slots'
+    );
+    if (!slotCount || Number(slotCount.total) === 0) {
+      const existingVideos = await query.all(
+        isPostgres
+          ? 'SELECT COALESCE(video_url, video_path) AS video_url, COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url FROM videos ORDER BY id DESC LIMIT 6'
+          : 'SELECT COALESCE(video_url, video_path) AS video_url, COALESCE(thumbnail_url, thumbnail_path) AS thumbnail_url FROM videos ORDER BY id DESC LIMIT 6'
+      );
+
+      const defaultUrls = [
+        '/uploads/videos/seed-video-1.mp4',
+        '/uploads/videos/seed-video-2.mp4',
+        '/uploads/videos/seed-video-3.mp4',
+        '/uploads/videos/seed-video-4.mp4',
+        '/uploads/videos/seed-video-5.mp4',
+        '/uploads/videos/seed-video-6.mp4'
+      ];
+
+      for (let pos = 1; pos <= 6; pos++) {
+        const item = existingVideos[pos - 1];
+        const vUrl = (item && item.video_url) ? item.video_url : defaultUrls[pos - 1];
+        const tUrl = (item && item.thumbnail_url) ? item.thumbnail_url : `/uploads/thumbnails/seed-thumb-${pos}.svg`;
+
+        if (isPostgres) {
+          await query.run(
+            `INSERT INTO featured_carousel_slots (slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (slot_position) DO NOTHING`,
+            [pos, vUrl, tUrl, 1.0, 0.0, 0.0, true]
+          );
+        } else {
+          await query.run(
+            `INSERT OR IGNORE INTO featured_carousel_slots (slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [pos, vUrl, tUrl, 1.0, 0.0, 0.0, 1]
+          );
+        }
+      }
+      console.log('⭐ Seeded 6 default independent featured carousel slots.');
+    }
+  } catch (err) {
+    console.warn('Notice: seedFeaturedCarouselSlotsIfEmpty encountered:', err.message);
   }
 }
 

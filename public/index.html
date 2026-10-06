@@ -158,39 +158,26 @@
          FEATURED SHORT VIDEOS CAROUSEL (MOBILE-FIRST)
          Directly below the Category Tabs.
          ==================================================================== -->
-    <section class="featured-carousel-section" id="featuredCarouselSection" aria-label="Featured Videos" style="display: none;">
+    <!-- ====================================================================
+         FEATURED VIDEOS CAROUSEL (CLEAN, MINIMAL, ONLY VIDEO)
+         Directly below Category Tabs with minimal gap.
+         ==================================================================== -->
+    <section class="featured-carousel-section" id="featuredCarouselSection" aria-label="Featured Carousel" style="display: none;">
       <div class="featured-carousel-container">
-        <!-- Compact Header / Badge Bar -->
-        <div class="featured-carousel-header">
-          <div class="featured-badge-group">
-            <span class="featured-live-dot" aria-hidden="true"></span>
-            <span class="featured-section-title">Featured Videos</span>
-          </div>
-          <!-- Subtle Progress / Slide Counter (e.g. "1 / 6") -->
-          <div class="featured-counter" id="featuredCounterBadge" aria-live="polite">
-            <span id="featuredCurrentSlide">1</span> / <span id="featuredTotalSlides">6</span>
-          </div>
-        </div>
-
         <!-- Carousel Viewport & Swipe Track -->
         <div class="featured-viewport-wrapper">
-          <!-- Desktop Navigation Arrow Buttons -->
-          <button type="button" class="featured-nav-btn featured-nav-prev" id="btnFeaturedPrev" aria-label="Previous featured video">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          <!-- Subtle Desktop Navigation Arrows -->
+          <button type="button" class="featured-nav-btn featured-nav-prev" id="btnFeaturedPrev" aria-label="Previous video">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
           </button>
           
-          <div class="featured-track" id="featuredTrack" role="region" aria-label="Featured Videos Carousel" tabindex="0">
-            <!-- Dynamically populated slides -->
+          <div class="featured-track" id="featuredTrack" role="region" aria-label="Featured Carousel Track" tabindex="0">
+            <!-- Dynamically populated pure-video slides -->
           </div>
 
-          <button type="button" class="featured-nav-btn featured-nav-next" id="btnFeaturedNext" aria-label="Next featured video">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          <button type="button" class="featured-nav-btn featured-nav-next" id="btnFeaturedNext" aria-label="Next video">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
-        </div>
-
-        <!-- Dot Navigation Indicators -->
-        <div class="featured-dots" id="featuredDots" aria-hidden="true">
-          <!-- Dots rendered dynamically -->
         </div>
       </div>
     </section>

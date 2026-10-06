@@ -22,21 +22,44 @@
   const adminTableBody = document.getElementById('adminTableBody');
   const adminCardsContainer = document.getElementById('adminCardsContainer');
 
-  // Featured Homepage Videos DOM Elements
+  // Featured Homepage Carousel DOM Elements
   const featuredSlotsGrid = document.getElementById('featuredSlotsGrid');
   const btnClearAllFeatured = document.getElementById('btnClearAllFeatured');
   const btnSaveFeatured = document.getElementById('btnSaveFeatured');
   const btnSaveFeaturedText = document.getElementById('btnSaveFeaturedText');
-  const featuredVideoPickerModal = document.getElementById('featuredVideoPickerModal');
-  const btnCloseFeaturedPicker = document.getElementById('btnCloseFeaturedPicker');
-  const btnCancelFeaturedPicker = document.getElementById('btnCancelFeaturedPicker');
-  const pickerSlotLabel = document.getElementById('pickerSlotLabel');
-  const featuredPickerSearchInput = document.getElementById('featuredPickerSearchInput');
-  const pickerVideoList = document.getElementById('pickerVideoList');
+
+  // Featured Video Positioning & Zoom Editor Modal Elements
+  const featuredVideoEditorModal = document.getElementById('featuredVideoEditorModal');
+  const featuredEditorSlotLabel = document.getElementById('featuredEditorSlotLabel');
+  const btnCloseFeaturedEditor = document.getElementById('btnCloseFeaturedEditor');
+  const btnCancelFeaturedEditor = document.getElementById('btnCancelFeaturedEditor');
+  const btnResetFeaturedEditor = document.getElementById('btnResetFeaturedEditor');
+  const btnSaveFeaturedEditor = document.getElementById('btnSaveFeaturedEditor');
+  const btnSaveFeaturedEditorText = document.getElementById('btnSaveFeaturedEditorText');
+  const featuredEditorViewport = document.getElementById('featuredEditorViewport');
+  const editorBgVideo = document.getElementById('editorBgVideo');
+  const editorFgVideo = document.getElementById('editorFgVideo');
+  const editorZoomSlider = document.getElementById('editorZoomSlider');
+  const btnEditorZoomOut = document.getElementById('btnEditorZoomOut');
+  const btnEditorZoomIn = document.getElementById('btnEditorZoomIn');
+  const editorZoomValueText = document.getElementById('editorZoomValueText');
+  const editorPanCoords = document.getElementById('editorPanCoords');
+  const featuredUploadProgress = document.getElementById('featuredUploadProgress');
+  const featuredUploadProgressFill = document.getElementById('featuredUploadProgressFill');
 
   let featuredSlots = [];
-  let activePickerSlot = null;
-  let draggedSlotIndex = null;
+  let editorSlotPos = 1;
+  let editorFile = null;
+  let editorExistingUrl = null;
+  let editorObjectUrl = null;
+  let editorZoom = 1.0;
+  let editorPanX = 0;
+  let editorPanY = 0;
+  let isDraggingVideo = false;
+  let dragStartPointerX = 0;
+  let dragStartPointerY = 0;
+  let dragStartPanX = 0;
+  let dragStartPanY = 0;
 
   const btnAdminLogout = document.getElementById('btnAdminLogout');
   const btnOpenAddModal = document.getElementById('btnOpenAddModal');
@@ -418,48 +441,53 @@
   async function loadFeaturedSlotsData() {
     if (!featuredSlotsGrid) return;
     try {
-      const res = await fetch('/api/admin/featured-videos');
+      const res = await fetch('/api/admin/featured-carousel');
       if (res.ok) {
         const data = await res.json();
         if (data.slots && Array.isArray(data.slots)) {
           featuredSlots = data.slots;
         }
+      } else {
+        // Fallback endpoint
+        const fallbackRes = await fetch('/api/admin/featured-videos');
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json();
+          if (fallbackData.slots && Array.isArray(fallbackData.slots)) {
+            featuredSlots = fallbackData.slots;
+          }
+        }
       }
     } catch (err) {
-      console.error('Failed to load featured slots:', err);
+      console.error('Failed to load featured carousel slots:', err);
     }
 
     // Ensure we always have positions 1 through 6
-    if (!featuredSlots || featuredSlots.length === 0) {
-      featuredSlots = [1, 2, 3, 4, 5, 6].map(pos => ({
-        position: pos,
-        video_id: null,
-        is_active: false,
-        video: null
-      }));
-    } else {
-      const normalized = [];
-      for (let pos = 1; pos <= 6; pos++) {
-        const existing = featuredSlots.find(s => Number(s.position) === pos);
-        if (existing) {
-          normalized.push({
-            position: pos,
-            video_id: existing.video_id || null,
-            is_active: existing.is_active !== undefined ? Boolean(existing.is_active) : Boolean(existing.video_id),
-            video: existing.video || null
-          });
-        } else {
-          normalized.push({
-            position: pos,
-            video_id: null,
-            is_active: false,
-            video: null
-          });
-        }
+    const normalized = [];
+    for (let pos = 1; pos <= 6; pos++) {
+      const existing = (featuredSlots || []).find(s => Number(s.slot_position || s.position) === pos);
+      if (existing && existing.video_url) {
+        normalized.push({
+          slot_position: pos,
+          video_url: existing.video_url,
+          thumbnail_url: existing.thumbnail_url || null,
+          zoom: existing.zoom !== undefined ? parseFloat(existing.zoom) : 1.0,
+          pan_x: existing.pan_x !== undefined ? parseFloat(existing.pan_x) : 0.0,
+          pan_y: existing.pan_y !== undefined ? parseFloat(existing.pan_y) : 0.0,
+          is_active: existing.is_active !== undefined ? Boolean(existing.is_active) : true
+        });
+      } else {
+        normalized.push({
+          slot_position: pos,
+          video_url: null,
+          thumbnail_url: null,
+          zoom: 1.0,
+          pan_x: 0.0,
+          pan_y: 0.0,
+          is_active: true
+        });
       }
-      featuredSlots = normalized;
     }
-
+    featuredSlots = normalized;
     renderFeaturedSlots();
   }
 
@@ -470,96 +498,109 @@
     featuredSlots.forEach((slot, index) => {
       const card = document.createElement('div');
       card.className = 'featured-slot-card';
-      card.setAttribute('draggable', 'true');
       card.dataset.index = index;
-      card.dataset.position = slot.position;
+      card.dataset.position = slot.slot_position;
 
       // Header row with slot badge and reorder controls
       const header = document.createElement('div');
-      header.className = 'slot-header';
+      header.className = 'featured-slot-header';
       header.innerHTML = `
-        <span class="slot-badge">Slot ${slot.position}</span>
+        <span class="slot-badge">Slot ${slot.slot_position}</span>
         <div class="slot-reorder-group">
-          <button type="button" class="slot-reorder-btn btn-slot-up" title="Move Up" ${index === 0 ? 'disabled' : ''}>▲</button>
-          <button type="button" class="slot-reorder-btn btn-slot-down" title="Move Down" ${index === 5 ? 'disabled' : ''}>▼</button>
-          <span class="slot-drag-handle" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+          <button type="button" class="slot-reorder-btn btn-slot-up" title="Move Up (1-6)" ${index === 0 ? 'disabled' : ''}>▲</button>
+          <button type="button" class="slot-reorder-btn btn-slot-down" title="Move Down (1-6)" ${index === 5 ? 'disabled' : ''}>▼</button>
         </div>
       `;
       card.appendChild(header);
 
-      if (slot.video && slot.video.id) {
-        // Preview Box
-        const isPortrait = slot.video.thumbnail_aspect_ratio === '9:16';
+      if (slot.video_url) {
+        // Populated Slot: Mini Dual-Layer Live Preview
         const previewBox = document.createElement('div');
         previewBox.className = 'slot-preview-box';
-        if (isPortrait) {
-          previewBox.style.aspectRatio = '9 / 16';
-          previewBox.style.maxHeight = '180px';
-        }
-        const thumbUrl = slot.video.thumbnail_url || `/api/videos/${slot.video.id}/thumbnail`;
+        previewBox.title = 'Hover to play preview';
         previewBox.innerHTML = `
-          <img src="${escapeHtml(thumbUrl)}" class="slot-preview-img" alt="${escapeHtml(slot.video.title)}" loading="lazy">
+          <div class="slot-mini-bg-layer" aria-hidden="true">
+            <video class="slot-mini-bg-video" src="${escapeHtml(slot.video_url)}" playsinline muted loop></video>
+          </div>
+          <div class="slot-mini-fg-frame">
+            <video class="slot-mini-fg-video" src="${escapeHtml(slot.video_url)}" playsinline muted loop style="transform: translate(${slot.pan_x || 0}px, ${slot.pan_y || 0}px) scale(${slot.zoom || 1.0});"></video>
+          </div>
         `;
         card.appendChild(previewBox);
 
-        // Info
-        const info = document.createElement('div');
-        info.className = 'slot-video-info';
-        info.innerHTML = `
-          <h4 class="slot-video-title" title="${escapeHtml(slot.video.title)}">${escapeHtml(slot.video.title)}</h4>
-          <div class="slot-meta-row">
-            <span>${escapeHtml(slot.video.category || 'General')}</span>
-            <span>•</span>
-            <span>${slot.video.duration || '00:00'}</span>
-            <span>•</span>
-            <span>ID #${slot.video.id}</span>
-          </div>
-          <div class="slot-actions-bar">
-            <button type="button" class="action-icon-btn btn-slot-replace">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-              <span>Replace</span>
-            </button>
-            <button type="button" class="action-icon-btn btn-delete btn-slot-remove">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              <span>Remove</span>
-            </button>
-          </div>
-        `;
-        card.appendChild(info);
-
-        info.querySelector('.btn-slot-replace').addEventListener('click', (e) => {
-          e.stopPropagation();
-          openFeaturedPicker(slot.position);
+        // Hover plays both videos in preview
+        previewBox.addEventListener('mouseenter', () => {
+          const vids = previewBox.querySelectorAll('video');
+          vids.forEach(v => v.play().catch(() => {}));
+        });
+        previewBox.addEventListener('mouseleave', () => {
+          const vids = previewBox.querySelectorAll('video');
+          vids.forEach(v => v.pause());
         });
 
-        info.querySelector('.btn-slot-remove').addEventListener('click', (e) => {
+        // Action Buttons Bar
+        const actions = document.createElement('div');
+        actions.className = 'slot-actions-bar';
+        actions.innerHTML = `
+          <button type="button" class="slot-action-btn btn-slot-adjust">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+            <span>Adjust Position</span>
+          </button>
+          <label class="slot-action-btn" style="cursor: pointer;">
+            <input type="file" accept="video/*" class="slot-replace-input" style="display: none;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            <span>Replace</span>
+          </label>
+          <button type="button" class="slot-action-btn btn-delete btn-slot-delete">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            <span>Delete</span>
+          </button>
+        `;
+        card.appendChild(actions);
+
+        // Adjust position opens editor modal with existing video_url, zoom, pan_x, pan_y
+        actions.querySelector('.btn-slot-adjust').addEventListener('click', (e) => {
           e.stopPropagation();
-          slot.video_id = null;
-          slot.video = null;
-          slot.is_active = false;
-          renderFeaturedSlots();
-          showToast(`Cleared Slot ${slot.position}`);
+          openFeaturedEditor(slot.slot_position, null, slot.video_url, slot.zoom, slot.pan_x, slot.pan_y);
+        });
+
+        // Replace video selects new file from gallery and opens editor modal
+        const replaceInput = actions.querySelector('.slot-replace-input');
+        replaceInput.addEventListener('change', () => {
+          if (replaceInput.files && replaceInput.files[0]) {
+            openFeaturedEditor(slot.slot_position, replaceInput.files[0], null, 1.0, 0, 0);
+          }
+        });
+
+        // Delete slot
+        actions.querySelector('.btn-slot-delete').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await deleteFeaturedSlot(slot.slot_position);
         });
 
       } else {
-        // Empty slot
+        // Empty Slot: Upload Button directly from Gallery
         const emptyBox = document.createElement('div');
         emptyBox.className = 'slot-empty-box';
         emptyBox.innerHTML = `
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="opacity: 0.6;"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-          <span style="font-size: 0.8125rem; font-weight: 600; color: var(--text-secondary);">Empty Slot</span>
-          <button type="button" class="btn-primary-dark btn-slot-select" style="padding: 6px 14px; font-size: 0.8125rem; margin-top: 4px;">
-            Select Video
-          </button>
+          <label class="btn-upload-featured">
+            <input type="file" accept="video/*" class="slot-upload-input" style="display: none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            <span>Upload Video</span>
+          </label>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">From computer / mobile gallery</span>
         `;
         card.appendChild(emptyBox);
 
-        emptyBox.addEventListener('click', () => {
-          openFeaturedPicker(slot.position);
+        const uploadInput = emptyBox.querySelector('.slot-upload-input');
+        uploadInput.addEventListener('change', () => {
+          if (uploadInput.files && uploadInput.files[0]) {
+            openFeaturedEditor(slot.slot_position, uploadInput.files[0], null, 1.0, 0, 0);
+          }
         });
       }
 
-      // Up button click
+      // Reorder buttons (Move Up / Down)
       const btnUp = header.querySelector('.btn-slot-up');
       if (btnUp) {
         btnUp.addEventListener('click', (e) => {
@@ -568,7 +609,6 @@
         });
       }
 
-      // Down button click
       const btnDown = header.querySelector('.btn-slot-down');
       if (btnDown) {
         btnDown.addEventListener('click', (e) => {
@@ -577,190 +617,381 @@
         });
       }
 
-      // Drag and drop events
-      card.addEventListener('dragstart', (e) => {
-        draggedSlotIndex = index;
-        card.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', String(index));
-      });
-
-      card.addEventListener('dragend', () => {
-        card.classList.remove('dragging');
-        draggedSlotIndex = null;
-        document.querySelectorAll('.featured-slot-card').forEach(c => c.classList.remove('drag-over'));
-      });
-
-      card.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        card.classList.add('drag-over');
-      });
-
-      card.addEventListener('dragleave', () => {
-        card.classList.remove('drag-over');
-      });
-
-      card.addEventListener('drop', (e) => {
-        e.preventDefault();
-        card.classList.remove('drag-over');
-        if (draggedSlotIndex !== null && draggedSlotIndex !== index) {
-          swapFeaturedSlots(draggedSlotIndex, index);
-        }
-      });
-
       featuredSlotsGrid.appendChild(card);
     });
   }
 
-  function swapFeaturedSlots(fromIndex, toIndex) {
+  async function swapFeaturedSlots(fromIndex, toIndex) {
     if (fromIndex < 0 || fromIndex >= 6 || toIndex < 0 || toIndex >= 6) return;
     const temp = featuredSlots[fromIndex];
     featuredSlots[fromIndex] = featuredSlots[toIndex];
     featuredSlots[toIndex] = temp;
 
-    // Recalculate positions 1..6
+    // Recalculate 1-based slot_position
     featuredSlots.forEach((slot, idx) => {
-      slot.position = idx + 1;
+      slot.slot_position = idx + 1;
     });
 
     renderFeaturedSlots();
-    showToast(`Swapped Slot ${fromIndex + 1} with Slot ${toIndex + 1}`);
+
+    // Persist reorder to database
+    try {
+      const payloadSlots = featuredSlots
+        .filter(s => Boolean(s.video_url))
+        .map(s => ({
+          slot_position: s.slot_position,
+          video_url: s.video_url,
+          thumbnail_url: s.thumbnail_url || null,
+          zoom: s.zoom || 1.0,
+          pan_x: s.pan_x || 0.0,
+          pan_y: s.pan_y || 0.0,
+          is_active: true
+        }));
+
+      await fetch('/api/admin/featured-carousel', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slots: payloadSlots })
+      });
+      showToast(`Reordered: Slot ${fromIndex + 1} ↔ Slot ${toIndex + 1}`);
+    } catch (err) {
+      console.warn('Reorder sync error:', err);
+    }
   }
 
-  function openFeaturedPicker(slotPosition) {
-    activePickerSlot = slotPosition;
-    if (pickerSlotLabel) pickerSlotLabel.textContent = `Slot ${slotPosition}`;
-    if (featuredPickerSearchInput) featuredPickerSearchInput.value = '';
-    if (featuredVideoPickerModal) featuredVideoPickerModal.classList.add('active');
-    renderPickerVideos('');
+  async function deleteFeaturedSlot(position) {
+    if (!confirm(`Are you sure you want to clear Slot ${position}?`)) return;
+    try {
+      const res = await fetch(`/api/admin/featured-carousel/${position}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Slot ${position} cleared`);
+        await loadFeaturedSlotsData();
+      } else {
+        showToast(data.error || 'Failed to clear slot');
+      }
+    } catch (err) {
+      console.error('Delete slot error:', err);
+      showToast('Network error deleting slot');
+    }
   }
 
-  function closeFeaturedPicker() {
-    if (featuredVideoPickerModal) featuredVideoPickerModal.classList.remove('active');
-    activePickerSlot = null;
-  }
+  // ========================================================================
+  // FEATURED VIDEO POSITIONING & ZOOM EDITOR CONTROLLER
+  // ========================================================================
+  function openFeaturedEditor(slotPos, file = null, existingUrl = null, zoom = 1.0, panX = 0, panY = 0) {
+    editorSlotPos = slotPos;
+    editorFile = file;
+    editorExistingUrl = existingUrl;
+    editorZoom = typeof zoom === 'number' && !isNaN(zoom) ? zoom : 1.0;
+    editorPanX = typeof panX === 'number' && !isNaN(panX) ? panX : 0.0;
+    editorPanY = typeof panY === 'number' && !isNaN(panY) ? panY : 0.0;
 
-  function renderPickerVideos(searchQuery = '') {
-    if (!pickerVideoList) return;
-    pickerVideoList.innerHTML = '';
+    if (featuredEditorSlotLabel) featuredEditorSlotLabel.textContent = String(slotPos);
+    if (featuredUploadProgress) featuredUploadProgress.style.display = 'none';
+    if (featuredUploadProgressFill) featuredUploadProgressFill.style.width = '0%';
+    if (btnSaveFeaturedEditor) btnSaveFeaturedEditor.disabled = false;
+    if (btnSaveFeaturedEditorText) btnSaveFeaturedEditorText.textContent = 'Save Slot';
 
-    const query = String(searchQuery || '').trim().toLowerCase();
-    const publishedVideos = allVideos.filter(v => Boolean(v.published === 1 || v.published === true));
-
-    const filtered = query
-      ? publishedVideos.filter(v => (v.title || '').toLowerCase().includes(query) || (v.category || '').toLowerCase().includes(query))
-      : publishedVideos;
-
-    if (filtered.length === 0) {
-      pickerVideoList.innerHTML = `
-        <div style="text-align: center; color: var(--text-muted); padding: 32px 16px;">
-          No published videos found matching "${escapeHtml(searchQuery)}"
-        </div>
-      `;
-      return;
+    // Cleanup previous object URL
+    if (editorObjectUrl) {
+      URL.revokeObjectURL(editorObjectUrl);
+      editorObjectUrl = null;
     }
 
-    filtered.forEach(v => {
-      const item = document.createElement('div');
-      item.className = 'picker-video-item';
-      const thumbUrl = v.thumbnail_url || `/api/videos/${v.id}/thumbnail`;
-      const isPortrait = v.thumbnail_aspect_ratio === '9:16';
-      
-      item.innerHTML = `
-        <img src="${escapeHtml(thumbUrl)}" class="picker-video-thumb" alt="${escapeHtml(v.title)}" style="${isPortrait ? 'aspect-ratio: 9/16; width: 45px;' : ''}" loading="lazy">
-        <div class="picker-video-info">
-          <h5 class="picker-video-title">${escapeHtml(v.title)}</h5>
-          <div class="picker-video-meta">
-            <span>${escapeHtml(v.category || 'General')}</span> · 
-            <span>${v.duration || '00:00'}</span> · 
-            <span>${Number(v.views || 0).toLocaleString()} views</span>
-          </div>
-        </div>
-        <button type="button" class="btn-primary-dark" style="padding: 6px 14px; font-size: 0.8125rem;">
-          Select
-        </button>
-      `;
+    let sourceUrl = '';
+    if (editorFile) {
+      editorObjectUrl = URL.createObjectURL(editorFile);
+      sourceUrl = editorObjectUrl;
+    } else if (editorExistingUrl) {
+      sourceUrl = editorExistingUrl;
+    }
 
-      item.addEventListener('click', () => {
-        if (activePickerSlot !== null) {
-          const targetSlot = featuredSlots.find(s => s.position === activePickerSlot);
-          if (targetSlot) {
-            targetSlot.video_id = v.id;
-            targetSlot.video = { ...v };
-            targetSlot.is_active = true;
+    if (editorBgVideo) {
+      editorBgVideo.src = sourceUrl;
+      editorBgVideo.play().catch(() => {});
+    }
+    if (editorFgVideo) {
+      editorFgVideo.src = sourceUrl;
+      editorFgVideo.play().catch(() => {});
+    }
+
+    updateEditorTransform();
+    if (featuredVideoEditorModal) featuredVideoEditorModal.classList.add('active');
+  }
+
+  function closeFeaturedEditor() {
+    if (featuredVideoEditorModal) featuredVideoEditorModal.classList.remove('active');
+    if (editorBgVideo) {
+      editorBgVideo.pause();
+      editorBgVideo.removeAttribute('src');
+      editorBgVideo.load();
+    }
+    if (editorFgVideo) {
+      editorFgVideo.pause();
+      editorFgVideo.removeAttribute('src');
+      editorFgVideo.load();
+    }
+    if (editorObjectUrl) {
+      URL.revokeObjectURL(editorObjectUrl);
+      editorObjectUrl = null;
+    }
+    editorFile = null;
+    editorExistingUrl = null;
+  }
+
+  function updateEditorTransform() {
+    if (editorFgVideo) {
+      editorFgVideo.style.transform = `translate(${editorPanX}px, ${editorPanY}px) scale(${editorZoom})`;
+    }
+    if (editorZoomSlider) {
+      editorZoomSlider.value = String(editorZoom);
+    }
+    if (editorZoomValueText) {
+      editorZoomValueText.textContent = `${Math.round(editorZoom * 100)}%`;
+    }
+    if (editorPanCoords) {
+      editorPanCoords.textContent = `Pan: ${Math.round(editorPanX)}px, ${Math.round(editorPanY)}px`;
+    }
+  }
+
+  // Editor Zoom Slider & Buttons
+  if (editorZoomSlider) {
+    editorZoomSlider.addEventListener('input', (e) => {
+      editorZoom = parseFloat(e.target.value) || 1.0;
+      updateEditorTransform();
+    });
+  }
+  if (btnEditorZoomOut) {
+    btnEditorZoomOut.addEventListener('click', () => {
+      editorZoom = Math.max(0.5, Math.round((editorZoom - 0.1) * 100) / 100);
+      updateEditorTransform();
+    });
+  }
+  if (btnEditorZoomIn) {
+    btnEditorZoomIn.addEventListener('click', () => {
+      editorZoom = Math.min(3.0, Math.round((editorZoom + 0.1) * 100) / 100);
+      updateEditorTransform();
+    });
+  }
+  if (btnResetFeaturedEditor) {
+    btnResetFeaturedEditor.addEventListener('click', () => {
+      editorZoom = 1.0;
+      editorPanX = 0.0;
+      editorPanY = 0.0;
+      updateEditorTransform();
+    });
+  }
+
+  if (btnCloseFeaturedEditor) btnCloseFeaturedEditor.addEventListener('click', closeFeaturedEditor);
+  if (btnCancelFeaturedEditor) btnCancelFeaturedEditor.addEventListener('click', closeFeaturedEditor);
+
+  // Drag / Pan on Editor Viewport (Mouse & Touch)
+  if (featuredEditorViewport) {
+    const handleDragStart = (clientX, clientY) => {
+      isDraggingVideo = true;
+      dragStartPointerX = clientX;
+      dragStartPointerY = clientY;
+      dragStartPanX = editorPanX;
+      dragStartPanY = editorPanY;
+    };
+
+    const handleDragMove = (clientX, clientY) => {
+      if (!isDraggingVideo) return;
+      const dx = clientX - dragStartPointerX;
+      const dy = clientY - dragStartPointerY;
+      editorPanX = dragStartPanX + dx;
+      editorPanY = dragStartPanY + dy;
+      updateEditorTransform();
+    };
+
+    const handleDragEnd = () => {
+      isDraggingVideo = false;
+    };
+
+    featuredEditorViewport.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      handleDragStart(e.clientX, e.clientY);
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (isDraggingVideo) {
+        e.preventDefault();
+        handleDragMove(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener('mouseup', handleDragEnd);
+
+    // Touch support for mobile admin
+    featuredEditorViewport.addEventListener('touchstart', (e) => {
+      if (e.touches && e.touches[0]) {
+        handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+      if (isDraggingVideo && e.touches && e.touches[0]) {
+        handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchend', handleDragEnd);
+  }
+
+  // Save Featured Video Slot
+  if (btnSaveFeaturedEditor) {
+    btnSaveFeaturedEditor.addEventListener('click', async () => {
+      btnSaveFeaturedEditor.disabled = true;
+      if (btnSaveFeaturedEditorText) btnSaveFeaturedEditorText.textContent = 'Saving...';
+
+      let finalVideoUrl = editorExistingUrl;
+
+      // 1. If a new video file from gallery was selected, upload it first
+      if (editorFile) {
+        if (featuredUploadProgress) featuredUploadProgress.style.display = 'block';
+        if (btnSaveFeaturedEditorText) btnSaveFeaturedEditorText.textContent = 'Uploading Video...';
+
+        try {
+          if (isBlobEnabled) {
+            // Upload directly to Vercel Blob
+            const blobResult = await uploadDirectToBlob(editorFile, 'featured-carousel', (pct) => {
+              if (featuredUploadProgressFill) featuredUploadProgressFill.style.width = `${pct}%`;
+            });
+            finalVideoUrl = blobResult.url;
+          } else {
+            // Local fallback / direct backend upload
+            const formData = new FormData();
+            formData.append('video', editorFile);
+
+            const uploadRes = await new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('POST', '/api/admin/featured-carousel/upload');
+              xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable && featuredUploadProgressFill) {
+                  const pct = Math.round((e.loaded / e.total) * 100);
+                  featuredUploadProgressFill.style.width = `${pct}%`;
+                }
+              };
+              xhr.onload = () => {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+                    resolve(data);
+                  } else {
+                    reject(new Error(data.error || 'Upload failed'));
+                  }
+                } catch (parseErr) {
+                  reject(parseErr);
+                }
+              };
+              xhr.onerror = () => reject(new Error('Network error during upload'));
+              xhr.send(formData);
+            });
+
+            finalVideoUrl = uploadRes.video_url;
           }
-          closeFeaturedPicker();
-          renderFeaturedSlots();
-          showToast(`Assigned "${v.title}" to Slot ${activePickerSlot}`);
+        } catch (uploadErr) {
+          console.error('Video upload failed:', uploadErr);
+          showToast(`Upload failed: ${uploadErr.message}`);
+          btnSaveFeaturedEditor.disabled = false;
+          if (btnSaveFeaturedEditorText) btnSaveFeaturedEditorText.textContent = 'Save Slot';
+          return;
         }
-      });
+      }
 
-      pickerVideoList.appendChild(item);
-    });
-  }
+      if (!finalVideoUrl) {
+        showToast('Please select a video file.');
+        btnSaveFeaturedEditor.disabled = false;
+        if (btnSaveFeaturedEditorText) btnSaveFeaturedEditorText.textContent = 'Save Slot';
+        return;
+      }
 
-  // Event Listeners for Featured Video Picker & Actions
-  if (btnCloseFeaturedPicker) {
-    btnCloseFeaturedPicker.addEventListener('click', closeFeaturedPicker);
-  }
-  if (btnCancelFeaturedPicker) {
-    btnCancelFeaturedPicker.addEventListener('click', closeFeaturedPicker);
-  }
-  if (featuredPickerSearchInput) {
-    featuredPickerSearchInput.addEventListener('input', (e) => {
-      renderPickerVideos(e.target.value);
-    });
-  }
-  if (featuredVideoPickerModal) {
-    featuredVideoPickerModal.addEventListener('click', (e) => {
-      if (e.target === featuredVideoPickerModal) {
-        closeFeaturedPicker();
+      // 2. Save slot record with position, zoom, and pan
+      try {
+        if (btnSaveFeaturedEditorText) btnSaveFeaturedEditorText.textContent = 'Saving Slot...';
+        const payload = {
+          slot_position: editorSlotPos,
+          video_url: finalVideoUrl,
+          zoom: Math.round(editorZoom * 100) / 100,
+          pan_x: Math.round(editorPanX),
+          pan_y: Math.round(editorPanY),
+          is_active: true
+        };
+
+        const res = await fetch('/api/admin/featured-carousel/slot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast(`Slot ${editorSlotPos} saved successfully!`);
+          closeFeaturedEditor();
+          await loadFeaturedSlotsData();
+        } else {
+          showToast(data.error || 'Failed to save slot');
+        }
+      } catch (err) {
+        console.error('Save slot error:', err);
+        showToast('Network error saving slot');
+      } finally {
+        btnSaveFeaturedEditor.disabled = false;
+        if (btnSaveFeaturedEditorText) btnSaveFeaturedEditorText.textContent = 'Save Slot';
       }
     });
   }
 
-  // Save Featured Slots Handler
+  // Save All Featured Carousel Slots (Header button)
   if (btnSaveFeatured) {
     btnSaveFeatured.addEventListener('click', async () => {
       btnSaveFeatured.disabled = true;
       if (btnSaveFeaturedText) btnSaveFeaturedText.textContent = 'Saving...';
       try {
-        const payloadSlots = featuredSlots.map(s => ({
-          position: s.position,
-          video_id: s.video_id,
-          is_active: s.video_id ? true : false
-        }));
+        const payloadSlots = featuredSlots
+          .filter(s => Boolean(s.video_url))
+          .map(s => ({
+            slot_position: s.slot_position,
+            video_url: s.video_url,
+            thumbnail_url: s.thumbnail_url || null,
+            zoom: s.zoom || 1.0,
+            pan_x: s.pan_x || 0.0,
+            pan_y: s.pan_y || 0.0,
+            is_active: true
+          }));
 
-        const res = await fetch('/api/admin/featured-videos', {
+        const res = await fetch('/api/admin/featured-carousel', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ slots: payloadSlots })
         });
         const data = await res.json();
         if (res.ok && data.success) {
-          showToast('Featured homepage videos saved successfully!');
+          showToast('Featured carousel slots saved successfully!');
           await loadFeaturedSlotsData();
         } else {
-          showToast(data.error || 'Failed to save featured videos');
+          showToast(data.error || 'Failed to save featured carousel slots');
         }
       } catch (err) {
-        console.error('Error saving featured videos:', err);
+        console.error('Error saving featured carousel:', err);
         showToast('Server connection error');
       } finally {
         btnSaveFeatured.disabled = false;
-        if (btnSaveFeaturedText) btnSaveFeaturedText.textContent = 'Save Featured Videos';
+        if (btnSaveFeaturedText) btnSaveFeaturedText.textContent = 'Save Carousel Slots';
       }
     });
   }
 
-  // Clear All Featured Slots Handler
+  // Clear All Featured Carousel Slots (Header button)
   if (btnClearAllFeatured) {
     btnClearAllFeatured.addEventListener('click', async () => {
-      if (!confirm('Are you sure you want to clear all featured carousel videos?')) return;
+      if (!confirm('Are you sure you want to clear all 6 featured carousel slots?')) return;
       btnClearAllFeatured.disabled = true;
       try {
-        const res = await fetch('/api/admin/featured-videos', {
+        const res = await fetch('/api/admin/featured-carousel', {
           method: 'DELETE'
         });
         const data = await res.json();
@@ -768,10 +999,10 @@
           showToast('All featured slots have been cleared');
           await loadFeaturedSlotsData();
         } else {
-          showToast(data.error || 'Failed to clear featured videos');
+          showToast(data.error || 'Failed to clear featured carousel slots');
         }
       } catch (err) {
-        console.error('Error clearing featured videos:', err);
+        console.error('Error clearing featured carousel:', err);
         showToast('Server error while clearing');
       } finally {
         btnClearAllFeatured.disabled = false;

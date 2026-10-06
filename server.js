@@ -2239,114 +2239,80 @@ app.delete('/api/videos/:id', requireAdminApi, async (req, res) => {
 });
 
 // ==========================================================================
-// FEATURED HOMEPAGE VIDEOS APIS (SLOTS 1-6)
+// FEATURED HOMEPAGE CAROUSEL APIS (INDEPENDENT ASSETS & GALLERY UPLOAD)
 // ==========================================================================
 
-// Public API: Fetch Published Featured Homepage Videos (Slots 1-6)
+// Public API: Fetch Published Featured Homepage Carousel Videos (Slots 1-6)
 app.get('/api/featured-videos', async (req, res) => {
   try {
     const querySql = isPostgres
-      ? `SELECT 
-           f.id AS featured_id,
-           f.position,
-           f.is_active,
-           v.id,
-           v.title,
-           v.description,
-           v.category,
-           COALESCE(v.video_url, v.video_path) AS video_url,
-           COALESCE(v.video_url, v.video_path) AS video_path,
-           COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_url,
-           COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_path,
-           COALESCE(v.thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
-           v.duration,
-           v.duration_seconds,
-           v.views,
-           v.published,
-           v.created_at
-         FROM featured_home_videos f
-         JOIN videos v ON f.video_id = v.id
-         WHERE f.is_active = true AND v.published = true
-         ORDER BY f.position ASC
+      ? `SELECT id, slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active
+         FROM featured_carousel_slots
+         WHERE is_active = true
+         ORDER BY slot_position ASC
          LIMIT 6`
-      : `SELECT 
-           f.id AS featured_id,
-           f.position,
-           f.is_active,
-           v.id,
-           v.title,
-           v.description,
-           v.category,
-           COALESCE(v.video_url, v.video_path) AS video_url,
-           COALESCE(v.video_url, v.video_path) AS video_path,
-           COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_url,
-           COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_path,
-           COALESCE(v.thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
-           v.duration,
-           v.duration_seconds,
-           v.views,
-           v.published,
-           v.created_at
-         FROM featured_home_videos f
-         JOIN videos v ON f.video_id = v.id
-         WHERE f.is_active = 1 AND v.published = 1
-         ORDER BY f.position ASC
+      : `SELECT id, slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active
+         FROM featured_carousel_slots
+         WHERE is_active = 1
+         ORDER BY slot_position ASC
          LIMIT 6`;
 
     const rows = await query.all(querySql);
-    const videos = rows.map(r => {
-      const durSec = r.duration_seconds !== null && r.duration_seconds !== undefined ? Number(r.duration_seconds) : parseDurationToSeconds(r.duration);
-      return {
-        id: r.id,
-        featured_id: r.featured_id,
-        position: r.position,
-        title: r.title,
-        description: r.description,
-        category: r.category,
-        thumbnail_url: `/api/videos/${r.id}/thumbnail`,
-        thumbnail_aspect_ratio: r.thumbnail_aspect_ratio || '16:9',
-        duration: formatDuration(durSec) || r.duration || '00:00',
-        duration_seconds: durSec,
-        preview_video_url: `/api/featured-videos/${r.id}/stream`,
-        views: Number(r.views || 0),
-        published: r.published === true || r.published === 1 ? 1 : 0
-      };
-    });
+    const videos = rows.map(r => ({
+      id: r.id,
+      slot_position: r.slot_position,
+      position: r.slot_position,
+      video_url: r.video_url,
+      stream_url: `/api/featured-carousel/${r.id}/stream`,
+      preview_video_url: `/api/featured-carousel/${r.id}/stream`,
+      thumbnail_url: r.thumbnail_url || '',
+      zoom: parseFloat(r.zoom) || 1.0,
+      pan_x: parseFloat(r.pan_x) || 0.0,
+      pan_y: parseFloat(r.pan_y) || 0.0
+    }));
 
     res.json({ success: true, videos });
   } catch (err) {
     console.error('Error in GET /api/featured-videos:', err);
-    res.status(500).json({ error: 'Failed to retrieve featured videos' });
+    res.status(500).json({ error: 'Failed to retrieve featured carousel videos' });
   }
 });
 
-// Public API: Stream preview video for currently active featured video
-app.get('/api/featured-videos/:id/stream', async (req, res) => {
+// Stream handler for Featured Carousel videos (supports Vercel Blob range requests & local files)
+const handleFeaturedCarouselStream = async (req, res) => {
   try {
-    const videoId = parseInt(req.params.id, 10);
-    if (isNaN(videoId)) {
-      return res.status(400).json({ error: 'Invalid video ID' });
+    const slotId = parseInt(req.params.id, 10);
+    if (isNaN(slotId)) {
+      return res.status(400).json({ error: 'Invalid slot ID' });
     }
 
-    const featuredCheckSql = isPostgres
-      ? `SELECT f.id, v.video_url, v.video_path 
-         FROM featured_home_videos f
-         JOIN videos v ON f.video_id = v.id
-         WHERE f.video_id = $1 AND f.is_active = true AND v.published = true`
-      : `SELECT f.id, v.video_url, v.video_path 
-         FROM featured_home_videos f
-         JOIN videos v ON f.video_id = v.id
-         WHERE f.video_id = $1 AND f.is_active = 1 AND v.published = 1`;
+    let slot = await query.get(
+      'SELECT id, video_url FROM featured_carousel_slots WHERE id = $1',
+      [slotId]
+    );
 
-    const featuredVideo = await query.get(featuredCheckSql, [videoId]);
-    if (!featuredVideo) {
-      return res.status(404).json({ error: 'Video not found or not currently featured' });
+    // Fallback if accessed by position or legacy table
+    if (!slot) {
+      slot = await query.get(
+        'SELECT id, video_url FROM featured_carousel_slots WHERE slot_position = $1',
+        [slotId]
+      );
+    }
+    if (!slot) {
+      const legacy = await query.get(
+        'SELECT v.video_url, v.video_path FROM featured_home_videos f JOIN videos v ON f.video_id = v.id WHERE f.id = $1 OR f.position = $1',
+        [slotId]
+      );
+      if (legacy) {
+        slot = { id: slotId, video_url: legacy.video_url || legacy.video_path };
+      }
     }
 
-    const targetUrl = featuredVideo.video_url || featuredVideo.video_path;
-    if (!targetUrl) {
-      return res.status(404).json({ error: 'Video stream path missing' });
+    if (!slot || !slot.video_url) {
+      return res.status(404).json({ error: 'Featured video slot not found' });
     }
+
+    const targetUrl = slot.video_url;
 
     // Remote Vercel Blob URL Streaming Proxy
     if (isBlobUrl(targetUrl) || targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
@@ -2374,8 +2340,7 @@ app.get('/api/featured-videos/:id/stream', async (req, res) => {
         if (!res.getHeader('content-type')) res.setHeader('content-type', 'video/mp4');
         if (!res.getHeader('accept-ranges')) res.setHeader('accept-ranges', 'bytes');
         const { Readable } = require('stream');
-        const readableStream = Readable.fromWeb(upstreamRes.body);
-        return readableStream.pipe(res);
+        return Readable.fromWeb(upstreamRes.body).pipe(res);
       } catch (proxyErr) {
         const fallbackVideo = path.join(__dirname, 'uploads', 'videos', 'sample.mp4');
         if (fs.existsSync(fallbackVideo) && fs.statSync(fallbackVideo).size > 0) {
@@ -2402,129 +2367,171 @@ app.get('/api/featured-videos/:id/stream', async (req, res) => {
     }
     return streamLocalVideoFile(localFilePath, req, res);
   } catch (err) {
-    console.error(`Error in GET /api/featured-videos/${req.params.id}/stream:`, err);
+    console.error(`Error streaming featured carousel video:`, err);
     if (!res.headersSent) res.status(500).json({ error: 'Failed to stream featured video' });
+  }
+};
+
+app.get('/api/featured-carousel/:id/stream', handleFeaturedCarouselStream);
+app.get('/api/featured-videos/:id/stream', handleFeaturedCarouselStream);
+
+// Admin API: Upload a new video from gallery directly for the Featured Carousel
+app.post('/api/admin/featured-carousel/upload', requireAdminApi, upload.single('video'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file provided' });
+    }
+
+    let videoUrl = null;
+    const fileBuffer = req.file.buffer || (req.file.path && fs.existsSync(req.file.path) ? fs.readFileSync(req.file.path) : null);
+    if (!fileBuffer) {
+      return res.status(400).json({ error: 'Failed to read uploaded video content' });
+    }
+
+    // Direct upload to Vercel Blob if configured
+    if (isBlobConfigured() && process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        const storeAccess = (process.env.BLOB_ACCESS || 'private').toLowerCase() === 'public' ? 'public' : 'private';
+        const cleanName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const pathname = `featured-carousel/${Date.now()}-${cleanName}`;
+        const blobResult = await vercelBlob.put(pathname, fileBuffer, {
+          access: storeAccess,
+          token: process.env.BLOB_READ_WRITE_TOKEN
+        });
+        if (blobResult && blobResult.url) {
+          videoUrl = blobResult.url;
+        }
+      } catch (blobErr) {
+        console.warn('Vercel Blob upload failed for featured video, falling back to local disk:', blobErr.message);
+      }
+    }
+
+    // Local Disk storage fallback
+    if (!videoUrl) {
+      const videosDir = path.join(__dirname, 'uploads', 'videos');
+      if (!fs.existsSync(videosDir)) fs.mkdirSync(videosDir, { recursive: true });
+      const cleanName = `featured-${Date.now()}-${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const localDiskPath = path.join(videosDir, cleanName);
+      if (req.file.path && fs.existsSync(req.file.path) && req.file.path !== localDiskPath) {
+        fs.copyFileSync(req.file.path, localDiskPath);
+      } else {
+        fs.writeFileSync(localDiskPath, fileBuffer);
+      }
+      videoUrl = `/uploads/videos/${cleanName}`;
+    }
+
+    res.json({ success: true, video_url: videoUrl });
+  } catch (err) {
+    console.error('Error in POST /api/admin/featured-carousel/upload:', err);
+    res.status(500).json({ error: err.message || 'Failed to upload video' });
   }
 });
 
-// Admin API: Get all 6 featured video slots configuration
-app.get('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
+// Admin API: Get all 6 featured carousel slots configuration
+const handleGetAdminFeaturedCarousel = async (req, res) => {
   try {
-    const featuredRows = await query.all(`
-      SELECT 
-        f.id AS featured_id,
-        f.position,
-        f.video_id,
-        f.is_active,
-        v.id,
-        v.title,
-        v.description,
-        v.category,
-        COALESCE(v.thumbnail_url, v.thumbnail_path) AS thumbnail_url,
-        COALESCE(v.thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
-        v.duration,
-        v.duration_seconds,
-        v.views,
-        v.published
-      FROM featured_home_videos f
-      JOIN videos v ON f.video_id = v.id
-      ORDER BY f.position ASC
+    const rows = await query.all(`
+      SELECT id, slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active
+      FROM featured_carousel_slots
+      ORDER BY slot_position ASC
     `);
 
-    // Build array of exactly 6 slots (positions 1 through 6)
     const slots = [];
     for (let pos = 1; pos <= 6; pos++) {
-      const match = featuredRows.find(r => Number(r.position) === pos);
+      const match = rows.find(r => Number(r.slot_position) === pos);
       if (match) {
-        const durSec = match.duration_seconds !== null && match.duration_seconds !== undefined ? Number(match.duration_seconds) : parseDurationToSeconds(match.duration);
         slots.push({
+          id: match.id,
           position: pos,
-          video_id: match.video_id,
-          is_active: Boolean(match.is_active === true || match.is_active === 1),
-          video: {
-            id: match.id,
-            title: match.title,
-            description: match.description,
-            category: match.category,
-            thumbnail_url: `/api/videos/${match.id}/thumbnail`,
-            thumbnail_aspect_ratio: match.thumbnail_aspect_ratio || '16:9',
-            duration: formatDuration(durSec) || match.duration || '00:00',
-            duration_seconds: durSec,
-            views: Number(match.views || 0),
-            published: Boolean(match.published === true || match.published === 1)
-          }
+          slot_position: pos,
+          video_url: match.video_url,
+          stream_url: `/api/featured-carousel/${match.id}/stream`,
+          thumbnail_url: match.thumbnail_url || '',
+          zoom: parseFloat(match.zoom) || 1.0,
+          pan_x: parseFloat(match.pan_x) || 0.0,
+          pan_y: parseFloat(match.pan_y) || 0.0,
+          is_active: Boolean(match.is_active === true || match.is_active === 1)
         });
       } else {
         slots.push({
+          id: null,
           position: pos,
-          video_id: null,
-          is_active: false,
-          video: null
+          slot_position: pos,
+          video_url: null,
+          stream_url: null,
+          thumbnail_url: null,
+          zoom: 1.0,
+          pan_x: 0.0,
+          pan_y: 0.0,
+          is_active: false
         });
       }
     }
 
     res.json({ success: true, slots });
   } catch (err) {
-    console.error('Error in GET /api/admin/featured-videos:', err);
-    res.status(500).json({ error: 'Failed to retrieve featured video slots' });
+    console.error('Error in GET /api/admin/featured-carousel:', err);
+    res.status(500).json({ error: 'Failed to retrieve featured carousel slots' });
   }
-});
+};
 
-// Admin API: Set or replace a single featured slot (position 1-6)
-app.post('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
+app.get('/api/admin/featured-carousel', requireAdminApi, handleGetAdminFeaturedCarousel);
+app.get('/api/admin/featured-videos', requireAdminApi, handleGetAdminFeaturedCarousel);
+
+// Admin API: Set or replace a single featured slot
+app.post('/api/admin/featured-carousel/slot', requireAdminApi, async (req, res) => {
   try {
-    const { position, video_id, is_active } = req.body;
-    const pos = parseInt(position, 10);
-    const vidId = parseInt(video_id, 10);
-
+    const { slot_position, position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active } = req.body;
+    const pos = parseInt(slot_position || position, 10);
     if (isNaN(pos) || pos < 1 || pos > 6) {
-      return res.status(400).json({ error: 'Position must be an integer between 1 and 6' });
+      return res.status(400).json({ error: 'slot_position must be between 1 and 6' });
     }
-    if (isNaN(vidId)) {
-      return res.status(400).json({ error: 'A valid video_id is required' });
-    }
-
-    const video = await query.get('SELECT id, title, published FROM videos WHERE id = $1', [vidId]);
-    if (!video) {
-      return res.status(404).json({ error: 'Video not found' });
+    if (!video_url) {
+      return res.status(400).json({ error: 'video_url is required' });
     }
 
+    const zVal = parseFloat(zoom) || 1.0;
+    const pxVal = parseFloat(pan_x) || 0.0;
+    const pyVal = parseFloat(pan_y) || 0.0;
     const activeFlag = is_active !== undefined ? Boolean(is_active) : true;
 
     if (isPostgres) {
       await query.run(
-        `INSERT INTO featured_home_videos (position, video_id, is_active, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (position) DO UPDATE SET 
-           video_id = EXCLUDED.video_id,
+        `INSERT INTO featured_carousel_slots (slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+         ON CONFLICT (slot_position) DO UPDATE SET 
+           video_url = EXCLUDED.video_url,
+           thumbnail_url = EXCLUDED.thumbnail_url,
+           zoom = EXCLUDED.zoom,
+           pan_x = EXCLUDED.pan_x,
+           pan_y = EXCLUDED.pan_y,
            is_active = EXCLUDED.is_active,
            updated_at = NOW()`,
-        [pos, vidId, activeFlag]
+        [pos, video_url, thumbnail_url || null, zVal, pxVal, pyVal, activeFlag]
       );
     } else {
-      await query.run('DELETE FROM featured_home_videos WHERE position = $1', [pos]);
+      await query.run('DELETE FROM featured_carousel_slots WHERE slot_position = $1', [pos]);
       await query.run(
-        'INSERT INTO featured_home_videos (position, video_id, is_active, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)',
-        [pos, vidId, activeFlag ? 1 : 0]
+        `INSERT INTO featured_carousel_slots (slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+        [pos, video_url, thumbnail_url || null, zVal, pxVal, pyVal, activeFlag ? 1 : 0]
       );
     }
 
     res.json({ success: true, message: `Slot ${pos} updated successfully` });
   } catch (err) {
-    console.error('Error in POST /api/admin/featured-videos:', err);
-    res.status(500).json({ error: 'Failed to set featured video slot' });
+    console.error('Error in POST /api/admin/featured-carousel/slot:', err);
+    res.status(500).json({ error: 'Failed to set featured carousel slot' });
   }
 });
 
-// Admin API: Bulk update / reorder all featured slots (up to 6)
-app.put('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
+// Admin API: Bulk update / reorder all featured carousel slots
+const handlePutAdminFeaturedCarousel = async (req, res) => {
   try {
     const { slots } = req.body;
     if (!Array.isArray(slots)) {
       return res.status(400).json({ error: 'Request body must contain a "slots" array' });
     }
-
     if (slots.length > 6) {
       return res.status(400).json({ error: 'Maximum of 6 featured slots allowed' });
     }
@@ -2533,85 +2540,95 @@ app.put('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
     const validatedSlots = [];
 
     for (const item of slots) {
-      const pos = parseInt(item.position, 10);
+      const pos = parseInt(item.slot_position || item.position, 10);
       if (isNaN(pos) || pos < 1 || pos > 6) {
-        return res.status(400).json({ error: `Invalid position: ${item.position}. Must be 1 to 6.` });
+        return res.status(400).json({ error: `Invalid position: ${pos}. Must be 1 to 6.` });
       }
       if (seenPositions.has(pos)) {
         return res.status(400).json({ error: `Duplicate slot position: ${pos}` });
       }
       seenPositions.add(pos);
 
-      if (item.video_id !== null && item.video_id !== undefined && item.video_id !== '') {
-        const vidId = parseInt(item.video_id, 10);
-        if (isNaN(vidId)) {
-          return res.status(400).json({ error: `Invalid video_id in slot ${pos}` });
-        }
+      // Support either direct video_url or legacy video_id
+      let vUrl = item.video_url;
+      if (!vUrl && item.video_id) {
+        const vRow = await query.get('SELECT COALESCE(video_url, video_path) AS vurl FROM videos WHERE id = $1', [item.video_id]);
+        if (vRow) vUrl = vRow.vurl;
+      }
+
+      if (vUrl) {
         validatedSlots.push({
-          position: pos,
-          video_id: vidId,
+          slot_position: pos,
+          video_url: vUrl,
+          thumbnail_url: item.thumbnail_url || null,
+          zoom: parseFloat(item.zoom) || 1.0,
+          pan_x: parseFloat(item.pan_x) || 0.0,
+          pan_y: parseFloat(item.pan_y) || 0.0,
           is_active: item.is_active !== undefined ? Boolean(item.is_active) : true
         });
       }
     }
 
-    // Verify all assigned videos exist
-    for (const s of validatedSlots) {
-      const video = await query.get('SELECT id FROM videos WHERE id = $1', [s.video_id]);
-      if (!video) {
-        return res.status(404).json({ error: `Video ID ${s.video_id} for Slot ${s.position} not found` });
-      }
-    }
-
     // Clear and insert
-    await query.run('DELETE FROM featured_home_videos');
+    await query.run('DELETE FROM featured_carousel_slots');
     for (const s of validatedSlots) {
       if (isPostgres) {
         await query.run(
-          'INSERT INTO featured_home_videos (position, video_id, is_active, updated_at) VALUES ($1, $2, $3, NOW())',
-          [s.position, s.video_id, s.is_active]
+          `INSERT INTO featured_carousel_slots (slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+          [s.slot_position, s.video_url, s.thumbnail_url, s.zoom, s.pan_x, s.pan_y, s.is_active]
         );
       } else {
         await query.run(
-          'INSERT INTO featured_home_videos (position, video_id, is_active, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)',
-          [s.position, s.video_id, s.is_active ? 1 : 0]
+          `INSERT INTO featured_carousel_slots (slot_position, video_url, thumbnail_url, zoom, pan_x, pan_y, is_active, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)`,
+          [s.slot_position, s.video_url, s.thumbnail_url, s.zoom, s.pan_x, s.pan_y, s.is_active ? 1 : 0]
         );
       }
     }
 
-    res.json({ success: true, message: 'Featured video slots saved successfully' });
+    res.json({ success: true, message: 'Featured carousel slots saved successfully' });
   } catch (err) {
-    console.error('Error in PUT /api/admin/featured-videos:', err);
-    res.status(500).json({ error: 'Failed to save featured videos' });
+    console.error('Error in PUT /api/admin/featured-carousel:', err);
+    res.status(500).json({ error: 'Failed to save featured carousel slots' });
   }
-});
+};
+
+app.put('/api/admin/featured-carousel', requireAdminApi, handlePutAdminFeaturedCarousel);
+app.put('/api/admin/featured-videos', requireAdminApi, handlePutAdminFeaturedCarousel);
 
 // Admin API: Clear a specific slot by position
-app.delete('/api/admin/featured-videos/:position', requireAdminApi, async (req, res) => {
+const handleDeleteSingleSlot = async (req, res) => {
   try {
     const pos = parseInt(req.params.position, 10);
     if (isNaN(pos) || pos < 1 || pos > 6) {
       return res.status(400).json({ error: 'Position must be an integer between 1 and 6' });
     }
 
-    await query.run('DELETE FROM featured_home_videos WHERE position = $1', [pos]);
+    await query.run('DELETE FROM featured_carousel_slots WHERE slot_position = $1', [pos]);
     res.json({ success: true, message: `Slot ${pos} cleared successfully` });
   } catch (err) {
-    console.error(`Error in DELETE /api/admin/featured-videos/${req.params.position}:`, err);
+    console.error(`Error clearing slot ${req.params.position}:`, err);
     res.status(500).json({ error: 'Failed to clear slot' });
   }
-});
+};
+
+app.delete('/api/admin/featured-carousel/:position', requireAdminApi, handleDeleteSingleSlot);
+app.delete('/api/admin/featured-videos/:position', requireAdminApi, handleDeleteSingleSlot);
 
 // Admin API: Clear all featured slots
-app.delete('/api/admin/featured-videos', requireAdminApi, async (req, res) => {
+const handleDeleteAllSlots = async (req, res) => {
   try {
-    await query.run('DELETE FROM featured_home_videos');
-    res.json({ success: true, message: 'All featured slots cleared successfully' });
+    await query.run('DELETE FROM featured_carousel_slots');
+    res.json({ success: true, message: 'All featured carousel slots cleared successfully' });
   } catch (err) {
-    console.error('Error in DELETE /api/admin/featured-videos:', err);
-    res.status(500).json({ error: 'Failed to clear all featured slots' });
+    console.error('Error clearing all featured carousel slots:', err);
+    res.status(500).json({ error: 'Failed to clear all featured carousel slots' });
   }
-});
+};
+
+app.delete('/api/admin/featured-carousel', requireAdminApi, handleDeleteAllSlots);
+app.delete('/api/admin/featured-videos', requireAdminApi, handleDeleteAllSlots);
 
 // Error handling middleware (catches Multer file errors & unexpected errors)
 app.use((err, req, res, next) => {
