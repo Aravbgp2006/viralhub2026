@@ -2194,11 +2194,13 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   padding: 20px;
   opacity: 0;
   visibility: hidden;
+  pointer-events: none;
   transition: opacity var(--transition-fast), visibility var(--transition-fast);
 }
 .modal-overlay.active {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 .modal-card {
   width: 100%;

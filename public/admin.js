@@ -159,6 +159,7 @@
   let activeAddThumbDataUrl = null;
   let activeEditThumbFile = null;
   let activeEditThumbDataUrl = null;
+  let isBlobEnabled = false;
   let isProductionEnv = false;
   let currentBlobAccess = 'private'; // Default to private per project config
 
@@ -957,9 +958,9 @@
     const category = document.getElementById('addCategory').value;
     const initialViewsInput = document.getElementById('addInitialViews') ? document.getElementById('addInitialViews').value.trim() : '0';
     const published = document.getElementById('addPublished').checked ? '1' : '0';
-    const effectiveThumb = activeAddThumbFile || addThumbnail.files[0];
+    const effectiveThumb = activeAddThumbFile || (addThumbnail.files ? addThumbnail.files[0] : null);
     const thumbFile = effectiveThumb;
-    const videoFile = addVideoFile.files[0];
+    const videoFile = addVideoFile.files ? addVideoFile.files[0] : null;
     const selectedThumbRatio = getSelectedFormat('add');
 
     // Client-side validations
@@ -980,12 +981,13 @@
     }
 
     if (!thumbFile) {
-      showAddError('Please select and save a thumbnail image (JPG, PNG, WebP).');
+      showAddError('Please select a thumbnail image (JPG, PNG, WebP).');
       return;
     }
     const validThumbExts = ['.jpg', '.jpeg', '.png', '.webp'];
-    const thumbExt = '.' + thumbFile.name.split('.').pop().toLowerCase();
-    if (!validThumbExts.includes(thumbExt)) {
+    const thumbExt = thumbFile.name ? '.' + thumbFile.name.split('.').pop().toLowerCase() : '';
+    const isImageMime = thumbFile.type ? thumbFile.type.startsWith('image/') : false;
+    if (!validThumbExts.includes(thumbExt) && !isImageMime) {
       showAddError('Invalid thumbnail format. Please select a JPG, PNG, or WebP image.');
       return;
     }
@@ -995,28 +997,31 @@
       return;
     }
     const validVideoExts = ['.mp4', '.webm'];
-    const videoExt = '.' + videoFile.name.split('.').pop().toLowerCase();
-    if (!validVideoExts.includes(videoExt)) {
+    const videoExt = videoFile.name ? '.' + videoFile.name.split('.').pop().toLowerCase() : '';
+    const isVideoMime = videoFile.type ? (videoFile.type === 'video/mp4' || videoFile.type === 'video/webm') : false;
+    if (!validVideoExts.includes(videoExt) && !isVideoMime) {
       showAddError('Invalid video format. Please select an MP4 or WebM video file.');
       return;
     }
 
-    // Ensure latest Blob status before starting upload
-    await checkBlobStatus();
-
-    // Lock UI and show progress
+    // Lock UI and show clear loading state
     isUploading = true;
     btnSubmitAdd.disabled = true;
     btnCancelAdd.disabled = true;
     btnCloseAddModal.disabled = true;
     if (btnSubmitIcon) btnSubmitIcon.style.display = 'none';
+    if (btnSubmitText) btnSubmitText.textContent = 'Publishing...';
 
     if (uploadProgressContainer) {
       uploadProgressContainer.style.display = 'block';
       uploadProgressBar.style.width = '0%';
       uploadProgressPercent.textContent = '0%';
-      uploadProgressLabel.textContent = 'Starting upload...';
+      uploadProgressLabel.textContent = 'Publishing...';
     }
+
+    try {
+      // Ensure latest Blob status before starting upload
+      await checkBlobStatus();
 
     // Direct Vercel Blob client upload flow
     if (isBlobEnabled) {
@@ -1181,6 +1186,11 @@
     };
 
     xhr.send(formData);
+    } catch (topErr) {
+      console.error('Publish error:', topErr);
+      resetSubmitButton();
+      showAddError(topErr.message || 'Error occurred while publishing.');
+    }
   });
 
   function showAddError(msg) {
@@ -1282,7 +1292,7 @@
     const category = document.getElementById('editCategory').value;
     const viewsInput = document.getElementById('editViews') ? document.getElementById('editViews').value.trim() : '';
     const published = document.getElementById('editPublished').checked ? '1' : '0';
-    const newThumb = editThumbnail.files[0];
+    const newThumb = activeEditThumbFile || (editThumbnail.files ? editThumbnail.files[0] : null);
     const newVideo = editVideoFile ? editVideoFile.files[0] : null;
 
     if (!title) {
@@ -1304,8 +1314,9 @@
 
     if (newThumb) {
       const validThumbExts = ['.jpg', '.jpeg', '.png', '.webp'];
-      const thumbExt = '.' + newThumb.name.split('.').pop().toLowerCase();
-      if (!validThumbExts.includes(thumbExt)) {
+      const thumbExt = newThumb.name ? '.' + newThumb.name.split('.').pop().toLowerCase() : '';
+      const isImageMime = newThumb.type ? newThumb.type.startsWith('image/') : false;
+      if (!validThumbExts.includes(thumbExt) && !isImageMime) {
         editErrorBanner.textContent = 'Invalid replacement thumbnail format. Please select a JPG, PNG, or WebP image.';
         editErrorBanner.style.display = 'block';
         return;
@@ -1314,8 +1325,9 @@
 
     if (newVideo) {
       const validVideoExts = ['.mp4', '.webm'];
-      const videoExt = '.' + newVideo.name.split('.').pop().toLowerCase();
-      if (!validVideoExts.includes(videoExt)) {
+      const videoExt = newVideo.name ? '.' + newVideo.name.split('.').pop().toLowerCase() : '';
+      const isVideoMime = newVideo.type ? (newVideo.type === 'video/mp4' || newVideo.type === 'video/webm') : false;
+      if (!validVideoExts.includes(videoExt) && !isVideoMime) {
         editErrorBanner.textContent = 'Invalid replacement video format. Please select an MP4 or WebM file.';
         editErrorBanner.style.display = 'block';
         return;
