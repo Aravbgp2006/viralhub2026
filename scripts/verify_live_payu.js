@@ -135,8 +135,32 @@ async function verifyLivePayU() {
   assert('PayU params contain success callback surl', Boolean(orderData.params?.surl?.includes('/api/payment/payu/success')));
   assert('PayU params contain failure callback furl', Boolean(orderData.params?.furl?.includes('/api/payment/payu/failure')));
 
-  // 4. Verification without valid payment fails
-  console.log('\n--- 4. Live POST /api/entitlements/verify (Anti-fraud Protection) ---');
+  // 4. Live PayU Production POST Checkout Execution
+  console.log('\n--- 4. Live PayU Production POST Submission ---');
+  const formPayload = new URLSearchParams(orderData.params).toString();
+  const payuResponse = await fetch(orderData.action, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    },
+    body: formPayload,
+    redirect: 'manual'
+  });
+
+  const payuStatus = payuResponse.status;
+  const payuLocation = payuResponse.headers.get('location') || '';
+  console.log(`  PayU Production Endpoint: ${orderData.action}`);
+  console.log(`  PayU HTTP Method: POST`);
+  console.log(`  PayU HTTP Status: ${payuStatus} ${payuResponse.statusText}`);
+  console.log(`  PayU Location: ${payuLocation}`);
+
+  assert('PayU Production did NOT return HTTP 403 Forbidden', payuStatus !== 403);
+  assert('PayU Production returned HTTP 302 redirect', payuStatus === 302);
+  assert('PayU redirect targets PayU checkout page (api.payu.in/public/#/...)', payuLocation.includes('payu.in'));
+
+  // 5. Verification without valid payment fails
+  console.log('\n--- 5. Live POST /api/entitlements/verify (Anti-fraud Protection) ---');
   const verifyRes = await request('POST', '/api/entitlements/verify', {}, {
     video_id: 41,
     txnid: orderData.txnid
@@ -145,8 +169,8 @@ async function verifyLivePayU() {
   const verifyData = verifyRes.json;
   assert('unlocked is false on failed verification', verifyData?.unlocked === false);
 
-  // 5. Video State Integrity
-  console.log('\n--- 5. Video State Integrity ---');
+  // 6. Video State Integrity
+  console.log('\n--- 6. Video State Integrity ---');
   const v41Res = await request('GET', '/api/videos/41');
   const v41 = v41Res.json;
   assert('Unpurchased visitor receives is_locked: true', v41?.video?.is_locked === true);
