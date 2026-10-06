@@ -6,6 +6,11 @@
 
 const https = require('https');
 const crypto = require('crypto');
+const dns = require('dns');
+
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (_) {}
 
 const BASE_URL = 'https://viralhub2026-mu.vercel.app';
 let totalPassed = 0;
@@ -21,6 +26,21 @@ function assert(condition, message) {
   }
 }
 
+const customLookup = (hostname, opts, cb) => {
+  if (typeof opts === 'function') {
+    cb = opts;
+    opts = {};
+  }
+  dns.resolve4(hostname, (err, addrs) => {
+    if (err || !addrs || addrs.length === 0) return dns.lookup(hostname, opts, cb);
+    if (opts && opts.all) {
+      cb(null, addrs.map(a => ({ address: a, family: 4 })));
+    } else {
+      cb(null, addrs[0], 4);
+    }
+  });
+};
+
 function request(method, endpoint, headers = {}, body = null) {
   return new Promise((resolve, reject) => {
     const url = new URL(endpoint, BASE_URL);
@@ -29,7 +49,8 @@ function request(method, endpoint, headers = {}, body = null) {
       hostname: url.hostname,
       port: 443,
       path: url.pathname + url.search,
-      headers: { ...headers }
+      headers: { ...headers },
+      lookup: customLookup
     };
 
     if (body && typeof body === 'object') {

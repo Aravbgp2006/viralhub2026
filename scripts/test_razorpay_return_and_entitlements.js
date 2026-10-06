@@ -16,10 +16,16 @@
  */
 
 const http = require('http');
+const https = require('https');
+const dns = require('dns');
 const crypto = require('crypto');
 const { query, initDatabase } = require('../database/db');
 
-const BASE_URL = 'http://127.0.0.1:3000';
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (_) {}
+
+const BASE_URL = process.env.TEST_BASE_URL || 'http://127.0.0.1:3000';
 let totalPassed = 0;
 let totalFailed = 0;
 
@@ -34,15 +40,32 @@ function assert(condition, message) {
   }
 }
 
+const customLookup = (hostname, opts, cb) => {
+  if (typeof opts === 'function') {
+    cb = opts;
+    opts = {};
+  }
+  dns.resolve4(hostname, (err, addrs) => {
+    if (err || !addrs || addrs.length === 0) return dns.lookup(hostname, opts, cb);
+    if (opts && opts.all) {
+      cb(null, addrs.map(a => ({ address: a, family: 4 })));
+    } else {
+      cb(null, addrs[0], 4);
+    }
+  });
+};
+
 function request(method, endpoint, headers = {}, body = null) {
   return new Promise((resolve, reject) => {
     const url = new URL(endpoint, BASE_URL);
+    const client = url.protocol === 'https:' ? https : http;
     const options = {
       method,
       hostname: url.hostname,
-      port: url.port,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
       path: url.pathname + url.search,
-      headers: { ...headers }
+      headers: { ...headers },
+      lookup: customLookup
     };
 
     if (body && typeof body === 'object') {
@@ -51,7 +74,7 @@ function request(method, endpoint, headers = {}, body = null) {
       options.headers['Content-Length'] = Buffer.byteLength(body);
     }
 
-    const req = http.request(options, (res) => {
+    const req = client.request(options, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
@@ -164,7 +187,8 @@ async function run() {
 
   const streamAAfter = await request('GET', `/api/videos/${vidA}/stream`, {
     Cookie: formatCookieHeader(clientCookies),
-    Authorization: `Bearer ${verifyResA.json.token}`
+    Authorization: `Bearer ${verifyResA.json.token}`,
+    Range: 'bytes=0-1023'
   });
   assert(streamAAfter.statusCode === 200 || streamAAfter.statusCode === 206, 'Stream Video A is accessible (200/206)');
 
@@ -357,7 +381,8 @@ async function run() {
 
   // Stream access for admin
   const adminStreamRes = await request('GET', `/api/videos/${vidC}/stream`, {
-    Cookie: formatCookieHeader(adminCookies)
+    Cookie: formatCookieHeader(adminCookies),
+    Range: 'bytes=0-1023'
   });
   assert(adminStreamRes.statusCode === 200 || adminStreamRes.statusCode === 206, 'Admin preview: stream accessible without purchase');
 
