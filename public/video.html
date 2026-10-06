@@ -249,6 +249,7 @@
     let currentVideoId = null;
     let isVideoLocked = false;
     let activeVideoData = null;
+    let verifiedUnlocked = false;
 
     // Fetch video detail based on path /video/:id or query parameters
     async function initVideoPage() {
@@ -296,7 +297,11 @@
         try {
           const vRes = await fetch('/api/entitlements/verify-link', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            credentials: 'same-origin',
             body: JSON.stringify({
               video_id: currentVideoId,
               razorpay_payment_id: paymentId,
@@ -307,9 +312,37 @@
               razorpay_signature: signature
             })
           });
-          const vData = await vRes.json();
-          if (vRes.ok && (vData.unlocked || vData.success)) {
-            window.history.replaceState({}, document.title, window.location.pathname);
+
+          let vData = null;
+          try {
+            vData = await vRes.json();
+          } catch (_) {}
+
+          if (vRes.ok && vData && (vData.unlocked || vData.success)) {
+            // Server verification succeeded: create verified entitlement for exact video_id
+            verifiedUnlocked = true;
+            isVideoLocked = false;
+
+            // Update secure session/token state
+            if (vData.token) {
+              try {
+                localStorage.setItem('vh_user_token', vData.token);
+                document.cookie = `vh_user_token=${vData.token}; path=/; max-age=31536000; SameSite=Lax`;
+              } catch (_) {}
+            }
+
+            try {
+              sessionStorage.removeItem('vh_pending_checkout_vid');
+              localStorage.removeItem('vh_pending_checkout_vid');
+              document.cookie = 'vh_pending_vid=; path=/; max-age=0';
+            } catch (_) {}
+
+            // Clean URL in address bar to prevent duplicate reprocessing
+            window.history.replaceState({}, document.title, `/video/${currentVideoId}`);
+
+            // Replace lock screen with actual video player immediately
+            unlockVideoDirectly(vData.video_url || vData.stream_url);
+
             const toast = document.getElementById('toastNotice');
             if (toast) {
               toast.textContent = 'Payment successful! Video unlocked.';
@@ -317,20 +350,55 @@
               setTimeout(() => toast.classList.remove('show'), 3500);
             }
           } else {
+            // Server verification failed: keep video locked and display explicit required error
+            isVideoLocked = true;
+            verifiedUnlocked = false;
+
+            try {
+              sessionStorage.removeItem('vh_pending_checkout_vid');
+              localStorage.removeItem('vh_pending_checkout_vid');
+              document.cookie = 'vh_pending_vid=; path=/; max-age=0';
+            } catch (_) {}
+
+            window.history.replaceState({}, document.title, `/video/${currentVideoId}`);
+
+            const errorMsg = 'Payment verification failed. Please try again.';
+            const unlockError = document.getElementById('unlockErrorAlert');
+            if (unlockError) {
+              unlockError.textContent = errorMsg;
+              unlockError.style.display = 'block';
+            }
             const toast = document.getElementById('toastNotice');
             if (toast) {
-              toast.textContent = vData.error || 'Payment verification failed.';
+              toast.textContent = errorMsg;
               toast.classList.add('show');
               setTimeout(() => toast.classList.remove('show'), 4000);
             }
           }
         } catch (vErr) {
           console.error('Payment redirect verification error:', vErr);
+          const errorMsg = 'Payment verification failed. Please try again.';
+          const unlockError = document.getElementById('unlockErrorAlert');
+          if (unlockError) {
+            unlockError.textContent = errorMsg;
+            unlockError.style.display = 'block';
+          }
         }
       }
 
       try {
-        const res = await fetch(`/api/videos/${currentVideoId}`);
+        const fetchHeaders = {};
+        const storedToken = localStorage.getItem('vh_user_token');
+        if (storedToken) {
+          fetchHeaders['Authorization'] = `Bearer ${storedToken}`;
+          fetchHeaders['x-user-token'] = storedToken;
+        }
+
+        const res = await fetch(`/api/videos/${currentVideoId}`, {
+          credentials: 'same-origin',
+          headers: fetchHeaders
+        });
+
         if (!res.ok) {
           if (res.status === 404) {
             showError('Video not found or unpublished.');
@@ -359,22 +427,14 @@
         const lockOverlay = document.getElementById('videoLockOverlay');
         const lockBackdrop = document.getElementById('playerLockBackdrop');
         const subBadge = document.getElementById('subStatusBadge');
-
-        isVideoLocked = Boolean(video.is_locked);
+        const checkoutModal = document.getElementById('checkoutModal');
 
         const secureThumbUrl = `/api/videos/${currentVideoId}/thumbnail`;
 
-        if (isVideoLocked) {
-          // Locked state: show paywall overlay, obscure preview with blurred thumbnail
-          lockBackdrop.style.backgroundImage = `url('${secureThumbUrl}')`;
-          lockOverlay.style.display = 'flex';
-          subBadge.style.display = 'none';
-
-          // Ensure player cannot play and has no protected URL loaded
-          player.removeAttribute('src');
-          player.load();
-        } else {
-          // Unlocked state: hide overlay and load authorized stream
+        if (verifiedUnlocked || !video.is_locked) {
+          // Unlocked state: hide overlay and checkout modal, load authorized stream and play
+          isVideoLocked = false;
+          if (checkoutModal) checkoutModal.style.display = 'none';
           lockOverlay.style.display = 'none';
           subBadge.style.display = 'inline-flex';
           if (data.is_admin) {
@@ -385,7 +445,22 @@
             subBadge.textContent = '✨ Video Unlocked';
           }
           player.poster = secureThumbUrl;
-          player.src = video.video_url || `/api/videos/${currentVideoId}/stream`;
+          const streamUrl = video.video_url || `/api/videos/${currentVideoId}/stream`;
+          if (!player.src || player.src.endsWith('/video.html') || player.src.endsWith(window.location.pathname)) {
+            player.src = streamUrl;
+            player.load();
+          }
+          player.play().catch(() => {});
+        } else {
+          // Locked state: show paywall overlay, obscure preview with blurred thumbnail
+          isVideoLocked = true;
+          lockBackdrop.style.backgroundImage = `url('${secureThumbUrl}')`;
+          lockOverlay.style.display = 'flex';
+          subBadge.style.display = 'none';
+
+          // Ensure player cannot play and has no protected URL loaded
+          player.removeAttribute('src');
+          player.load();
         }
 
         // Render Related Videos
@@ -428,19 +503,23 @@
       const lockOverlay = document.getElementById('videoLockOverlay');
       const player = document.getElementById('detailPlayer');
       const subBadge = document.getElementById('subStatusBadge');
+      const checkoutModal = document.getElementById('checkoutModal');
 
-      lockOverlay.style.display = 'none';
-      subBadge.style.display = 'inline-flex';
-      subBadge.className = 'badge-premium-active';
-      subBadge.textContent = '✨ Video Unlocked';
+      // Hide payment/checkout modal & paywall overlay
+      if (checkoutModal) checkoutModal.style.display = 'none';
+      if (lockOverlay) lockOverlay.style.display = 'none';
 
-      player.src = streamUrl || `/api/videos/${currentVideoId}/stream`;
+      isVideoLocked = false;
+      if (subBadge) {
+        subBadge.style.display = 'inline-flex';
+        subBadge.className = 'badge-premium-active';
+        subBadge.textContent = '✨ Video Unlocked';
+      }
+
+      const effectiveUrl = streamUrl || `/api/videos/${currentVideoId}/stream`;
+      player.src = effectiveUrl;
+      player.load();
       player.play().catch(() => {});
-
-      const toast = document.getElementById('toastNotice');
-      toast.textContent = 'Video Unlocked! Enjoy watching.';
-      toast.classList.add('show');
-      setTimeout(() => toast.classList.remove('show'), 3000);
     }
 
     // Auto-check unlock when user refocuses the tab (e.g. after paying in another tab/window)
@@ -448,7 +527,16 @@
       const lockOverlay = document.getElementById('videoLockOverlay');
       if (lockOverlay && lockOverlay.style.display !== 'none' && currentVideoId) {
         try {
-          const sRes = await fetch(`/api/entitlements/check/${currentVideoId}`);
+          const storedToken = localStorage.getItem('vh_user_token');
+          const chkHeaders = {};
+          if (storedToken) {
+            chkHeaders['Authorization'] = `Bearer ${storedToken}`;
+            chkHeaders['x-user-token'] = storedToken;
+          }
+          const sRes = await fetch(`/api/entitlements/check/${currentVideoId}`, {
+            credentials: 'same-origin',
+            headers: chkHeaders
+          });
           if (sRes.ok) {
             const sData = await sRes.json();
             if (sData.is_entitled) {
@@ -622,6 +710,13 @@
                     throw new Error(verifyData.error || 'Server-side payment verification failed');
                   }
 
+                  if (verifyData.token) {
+                    try {
+                      localStorage.setItem('vh_user_token', verifyData.token);
+                      document.cookie = `vh_user_token=${verifyData.token}; path=/; max-age=31536000; SameSite=Lax`;
+                    } catch (_) {}
+                  }
+
                   if (checkoutModal) checkoutModal.style.display = 'none';
                   unlockVideoDirectly(verifyData.video_url || verifyData.stream_url);
                 } catch (vErr) {
@@ -672,6 +767,13 @@
             const verifyData = await verifyRes.json();
             if (!verifyRes.ok || !verifyData.unlocked) {
               throw new Error(verifyData.error || 'Server-side payment verification failed');
+            }
+
+            if (verifyData.token) {
+              try {
+                localStorage.setItem('vh_user_token', verifyData.token);
+                document.cookie = `vh_user_token=${verifyData.token}; path=/; max-age=31536000; SameSite=Lax`;
+              } catch (_) {}
             }
 
             checkoutModal.style.display = 'none';

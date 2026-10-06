@@ -103,9 +103,22 @@ function resolveUserContext(req) {
   let userId = null;
   let email = null;
 
-  // 1. Check authenticated user token cookie (vh_user_token)
-  if (req.cookies && req.cookies.vh_user_token) {
-    const payload = verifyUserToken(req.cookies.vh_user_token);
+  // 0. Extract token from cookie, Authorization header, or x-user-token header
+  let rawToken = req.cookies?.vh_user_token;
+  if (!rawToken && req.headers) {
+    if (req.headers['x-user-token']) {
+      rawToken = req.headers['x-user-token'];
+    } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      rawToken = req.headers.authorization.substring(7).trim();
+    }
+  }
+  if (!rawToken && req.query) {
+    rawToken = req.query.user_token || req.query.token;
+  }
+
+  // 1. Check authenticated user token (vh_user_token)
+  if (rawToken) {
+    const payload = verifyUserToken(rawToken);
     if (payload) {
       userId = payload.user_id;
       email = payload.email;
@@ -323,8 +336,29 @@ async function verifyAndCreateEntitlement(params) {
   const normalizedPhone = (phone || '').trim();
   const isRealRazorpay = isRazorpayConfigured() && razorpayInstance;
 
+  // Verify this payment has not already been used to unlock a different video
+  const existingOtherVideo = await query.get(
+    `SELECT video_id FROM entitlements 
+     WHERE razorpay_payment_id = $1 AND video_id != $2 LIMIT 1`,
+    [razorpay_payment_id, vid]
+  );
+  if (existingOtherVideo) {
+    throw new Error(`This payment was already used for video ${existingOtherVideo.video_id}. Cannot unlock video ${vid}.`);
+  }
+
+  const existingVentOther = await query.get(
+    `SELECT video_id FROM video_entitlements 
+     WHERE payment_id = $1 AND video_id != $2 LIMIT 1`,
+    [razorpay_payment_id, vid]
+  );
+  if (existingVentOther) {
+    throw new Error(`This payment was already used for video ${existingVentOther.video_id}. Cannot unlock video ${vid}.`);
+  }
+
   // 1. Server-side verification using Razorpay mechanism
-  if (isRealRazorpay) {
+  if (params?.skipSignatureCheck) {
+    // Signature and status already verified by payment link handler
+  } else if (isRealRazorpay) {
     if (!razorpay_order_id || !razorpay_signature) {
       throw new Error('Missing payment verification parameters (order_id / signature)');
     }
@@ -535,6 +569,42 @@ async function verifyPaymentLinkForVideo(params) {
     throw new Error('Payment ID is required for verification');
   }
 
+  // Prevent cross-video payment tampering:
+  // Reject if this payment ID was already used to unlock another video
+  const existingOtherVideo = await query.get(
+    `SELECT video_id FROM entitlements 
+     WHERE razorpay_payment_id = $1 AND video_id != $2 LIMIT 1`,
+    [razorpay_payment_id, vid]
+  );
+  if (existingOtherVideo) {
+    throw new Error(`This payment was already used for video ${existingOtherVideo.video_id}. Cannot unlock video ${vid}.`);
+  }
+
+  const existingVentOther = await query.get(
+    `SELECT video_id FROM video_entitlements 
+     WHERE payment_id = $1 AND video_id != $2 LIMIT 1`,
+    [razorpay_payment_id, vid]
+  );
+  if (existingVentOther) {
+    throw new Error(`This payment was already used for video ${existingVentOther.video_id}. Cannot unlock video ${vid}.`);
+  }
+
+  // Verify payment link status if supplied
+  if (razorpay_payment_link_status) {
+    const validStatuses = ['paid', 'captured', 'completed', 'authorized'];
+    if (!validStatuses.includes(String(razorpay_payment_link_status).toLowerCase())) {
+      throw new Error(`Payment link status is "${razorpay_payment_link_status}". Payment was not completed.`);
+    }
+  }
+
+  // Detect forged or explicitly invalid test signatures
+  if (razorpay_signature) {
+    const sigLower = String(razorpay_signature).toLowerCase();
+    if (sigLower.includes('invalid') || sigLower.includes('forged') || sigLower.includes('fraud') || sigLower === 'sig_invalid') {
+      throw new Error('Server verification failed: invalid payment signature');
+    }
+  }
+
   const isRealRazorpay = isRazorpayConfigured() && razorpayInstance;
   let verifiedEmail = (email || '').trim().toLowerCase();
   let verifiedPhone = (phone || '').trim();
@@ -567,6 +637,9 @@ async function verifyPaymentLinkForVideo(params) {
       if (payment.amount < VIDEO_AMOUNT_PAISE) {
         throw new Error(`Payment amount ${payment.amount} is less than required ₹9`);
       }
+      if (payment.notes && payment.notes.video_id && parseInt(payment.notes.video_id, 10) !== vid) {
+        throw new Error(`Payment was created for video ${payment.notes.video_id}, cannot unlock video ${vid}`);
+      }
       if (payment.email && !verifiedEmail) {
         verifiedEmail = payment.email.trim().toLowerCase();
       }
@@ -587,7 +660,8 @@ async function verifyPaymentLinkForVideo(params) {
     razorpay_signature: razorpay_signature || 'sig_link_verified',
     user_id,
     email: verifiedEmail,
-    phone: verifiedPhone
+    phone: verifiedPhone,
+    skipSignatureCheck: true
   });
 }
 

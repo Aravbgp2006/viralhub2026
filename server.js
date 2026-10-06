@@ -1106,6 +1106,15 @@ app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) =
       return res.status(400).json({ error: 'Payment ID is required for verification', unlocked: false });
     }
 
+    // Verify client has not tampered with video_id vs initiated checkout session
+    const pendingVid = req.cookies?.vh_pending_vid;
+    if (pendingVid && parseInt(pendingVid, 10) !== parseInt(video_id, 10)) {
+      return res.status(400).json({
+        error: `Payment session was initiated for video ${pendingVid}, cannot verify for video ${video_id}`,
+        unlocked: false
+      });
+    }
+
     const ctx = resolveUserContext(req);
     const userId = ctx.userId || req.cookies?.vh_uid || 'usr_' + crypto.randomBytes(8).toString('hex');
     const effectiveEmail = email || ctx.email || '';
@@ -1119,6 +1128,9 @@ app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) =
       email: effectiveEmail,
       phone
     });
+
+    // Clear pending video cookie since payment is completed
+    res.clearCookie('vh_pending_vid', { path: '/' });
 
     // Set secure HTTP-only user token cookie
     res.cookie('vh_user_token', verification.token, {
@@ -1154,6 +1166,15 @@ app.post(['/api/entitlements/verify-link', '/api/payment/verify-link'], async (r
       return res.status(400).json({ error: 'Missing payment ID', unlocked: false });
     }
 
+    // Verify client has not tampered with video_id vs initiated checkout session
+    const pendingVid = req.cookies?.vh_pending_vid;
+    if (pendingVid && parseInt(pendingVid, 10) !== parseInt(video_id, 10)) {
+      return res.status(400).json({
+        error: `Payment session was initiated for video ${pendingVid}, cannot verify for video ${video_id}`,
+        unlocked: false
+      });
+    }
+
     const ctx = resolveUserContext(req);
     const userId = ctx.userId || req.cookies?.vh_uid || 'usr_' + crypto.randomBytes(8).toString('hex');
 
@@ -1168,6 +1189,9 @@ app.post(['/api/entitlements/verify-link', '/api/payment/verify-link'], async (r
       email: email || ctx.email,
       phone
     });
+
+    // Clear pending video cookie since payment is completed
+    res.clearCookie('vh_pending_vid', { path: '/' });
 
     res.cookie('vh_user_token', result.token, {
       maxAge: 365 * 24 * 60 * 60 * 1000,
