@@ -14,11 +14,13 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const { query, isPostgres } = require('../database/db');
 const {
-  createCashfreeOrder,
-  verifyCashfreeOrder,
-  isCashfreeConfigured,
-  getCashfreePublicConfig
-} = require('./cashfree');
+  isPayUConfigured,
+  getPayUPublicConfig,
+  createPayUPaymentPayload,
+  verifyReturnHash,
+  verifyPaymentWithPayU,
+  getPaymentUrl
+} = require('./payu');
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'viralhub_2026_cms_secret_key_8f3a1b';
 
@@ -53,23 +55,19 @@ function isRazorpayConfigured() {
  * Public configuration for frontend checkout
  */
 function getPublicEntitlementConfig(videoId) {
-  const isRzpConfigured = isRazorpayConfigured();
-  const hasLink = Boolean(RAZORPAY_PAYMENT_LINK_URL);
-  const cfConfig = getCashfreePublicConfig();
-  const isCfConfigured = isCashfreeConfigured();
+  const isPayuReady = isPayUConfigured();
+  const payuConfig = getPayUPublicConfig();
 
   return {
-    provider: (isCfConfigured || !isRzpConfigured) ? 'cashfree' : 'razorpay',
-    key_id: RAZORPAY_KEY_ID || 'rzp_test_mock_viralhub',
+    provider: 'payu',
+    payment_url: payuConfig.payment_url,
     price: VIDEO_PRICE,
     plan_price: '₹9/month',
     amount: VIDEO_AMOUNT_PAISE,
     currency: 'INR',
-    is_configured: true,
-    cashfree_configured: isCfConfigured,
-    environment: cfConfig.environment || 'production',
-    has_payment_link: hasLink,
-    payment_link_url: RAZORPAY_PAYMENT_LINK_URL || null,
+    is_configured: isPayuReady,
+    payu_configured: isPayuReady,
+    environment: payuConfig.environment,
     test_mode: false
   };
 }
@@ -263,48 +261,46 @@ async function createOrderForVideo(params) {
   const normalizedPhone = (phone || '').trim();
   const receipt = `rcpt_vid${vid}_${Date.now()}`.substring(0, 40);
 
-  // If Cashfree is configured (or by default for modern video checkout):
-  if (isCashfreeConfigured() || !isRazorpayConfigured()) {
+  // --- PAYU PAYMENT PAYLOAD CREATION ---
+  const host = params.host || 'https://viralhub2026-mu.vercel.app';
+  const surl = params.surl || `${host}/api/payment/payu/success`;
+  const furl = params.furl || `${host}/api/payment/payu/failure`;
+
+  if (isPayUConfigured()) {
     try {
-      const cfOrderId = `cf_vid_${vid}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-      const cfOrder = await createCashfreeOrder({
+      const txnid = `tx_vid_${vid}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      const payuPayload = createPayUPaymentPayload({
+        videoId: vid,
+        userId: user_id,
         amount: 9.00,
-        currency: 'INR',
-        orderId: cfOrderId,
-        customerId: user_id ? String(user_id).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40) : `cust_${Date.now()}`,
-        customerPhone: normalizedPhone || '9999999999',
-        customerEmail: normalizedEmail || 'customer@viralhub.com',
-        customerName: normalizedEmail ? normalizedEmail.split('@')[0] : 'ViralHub Customer',
-        returnUrl: params?.return_url || `https://viralhub2026-mu.vercel.app/video/${vid}?cf_order_id={order_id}`,
-        orderNote: `Unlock Video #${vid}`,
-        orderTags: { video_id: String(vid) }
+        email: normalizedEmail,
+        phone: normalizedPhone,
+        firstname: normalizedEmail ? normalizedEmail.split('@')[0] : 'Customer',
+        productinfo: `Unlock Video #${vid}`,
+        txnid,
+        surl,
+        furl
       });
 
-      if (cfOrder && cfOrder.success) {
-        return {
-          success: true,
-          order_id: cfOrder.order_id,
-          payment_session_id: cfOrder.payment_session_id,
-          environment: cfOrder.environment || 'production',
-          key_id: RAZORPAY_KEY_ID || 'rzp_test_mock_viralhub',
-          amount: VIDEO_AMOUNT_PAISE,
-          amount_inr: 9.00,
-          currency: 'INR',
-          video_id: vid,
-          video_title: video.title,
-          email: normalizedEmail,
-          provider: 'cashfree',
-          is_configured: true,
-          is_test_mode: false
-        };
-      } else {
-        throw new Error(cfOrder?.error || 'Cashfree order creation failed');
-      }
-    } catch (cfErr) {
-      console.error('Error creating Cashfree order for video:', cfErr.message);
-      if (!isRazorpayConfigured()) {
-        throw new Error(`Payment order creation error: ${cfErr.message}`);
-      }
+      return {
+        success: true,
+        provider: 'payu',
+        action: payuPayload.action,
+        params: payuPayload.params,
+        order_id: txnid,
+        txnid: txnid,
+        amount: VIDEO_AMOUNT_PAISE,
+        amount_inr: 9.00,
+        currency: 'INR',
+        video_id: vid,
+        video_title: video.title,
+        email: normalizedEmail,
+        is_configured: true,
+        is_test_mode: false
+      };
+    } catch (payuErr) {
+      console.error('Error creating PayU payment order:', payuErr.message);
+      throw new Error(`PayU payment order error: ${payuErr.message}`);
     }
   }
 
@@ -393,31 +389,60 @@ async function verifyAndCreateEntitlement(params) {
   const normalizedEmail = (email || '').trim().toLowerCase();
   const normalizedPhone = (phone || '').trim();
 
-  // --- 1. CASHFREE SERVER-SIDE VERIFICATION ---
-  if (cfOrderId && !razorpay_signature) {
-    const cfResult = await verifyCashfreeOrder(cfOrderId);
-    if (!cfResult || !cfResult.success) {
-      throw new Error(cfResult?.error || 'Cashfree verification failed');
-    }
-    if (cfResult.order_status !== 'PAID') {
-      throw new Error(`Payment has not been completed. Status is ${cfResult.order_status}`);
+  const txnid = params.txnid || params.order_id || params.cf_order_id || params.razorpay_order_id;
+  const payuParams = params.payu_params || (params.hash ? params : null);
+
+  // --- 1. PAYU SERVER-SIDE CRYPTOGRAPHIC & S2S VERIFICATION ---
+  if (txnid && !razorpay_signature) {
+    let isVerified = false;
+    let paymentStatus = null;
+    let paymentAmount = 0;
+    let mihpayid = params.mihpayid || params.payment_id || txnid;
+
+    // Check A: Verify PayU reverse hash if response payload is available
+    if (payuParams && payuParams.hash) {
+      const hashValid = verifyReturnHash(payuParams);
+      if (!hashValid) {
+        throw new Error('PayU reverse hash verification failed. Tampered response detected.');
+      }
+      if (payuParams.status !== 'success') {
+        throw new Error(`Payment has not been completed. PayU status is ${payuParams.status}`);
+      }
+      isVerified = true;
+      paymentStatus = payuParams.status;
+      paymentAmount = parseFloat(payuParams.amount);
+      mihpayid = payuParams.mihpayid || mihpayid;
     }
 
-    const paidAmt = parseFloat(cfResult.order_amount);
-    if (isNaN(paidAmt) || paidAmt < 1.00) {
-      throw new Error(`Payment amount ₹${paidAmt} is less than required price`);
+    // Check B: Query PayU verify_payment S2S API as backup or primary
+    if (!isVerified) {
+      const s2sResult = await verifyPaymentWithPayU(txnid);
+      if (!s2sResult || !s2sResult.success) {
+        throw new Error(s2sResult?.error || s2sResult?.status || 'PayU server-to-server verification failed');
+      }
+      if (s2sResult.status !== 'success') {
+        throw new Error(`Payment has not been completed. Status is ${s2sResult.status}`);
+      }
+      isVerified = true;
+      paymentStatus = s2sResult.status;
+      paymentAmount = parseFloat(s2sResult.amount);
+      mihpayid = s2sResult.mihpayid || mihpayid;
+    }
+
+    if (isNaN(paymentAmount) || paymentAmount < 1.00) {
+      throw new Error(`Payment amount ₹${paymentAmount} is less than required price`);
     }
 
     // Verify video association
-    if (!cfOrderId.includes(`_${vid}_`) && cfResult.order_tags?.video_id && String(cfResult.order_tags.video_id) !== String(vid)) {
-      throw new Error(`Payment was created for video ${cfResult.order_tags.video_id}, cannot unlock video ${vid}`);
+    if (!txnid.includes(`_${vid}_`) && payuParams?.udf1 && String(payuParams.udf1) !== String(vid)) {
+      throw new Error(`Payment was created for video ${payuParams.udf1}, cannot unlock video ${vid}`);
     }
 
     // Verify this payment has not already been used to unlock a different video
     const existingOtherVideo = await query.get(
       `SELECT video_id FROM entitlements 
        WHERE (razorpay_payment_id = $1 OR razorpay_order_id = $1) AND video_id != $2 LIMIT 1`,
-      [cfOrderId, vid]
+      [txnid, vid]
     );
     if (existingOtherVideo) {
       throw new Error(`This payment was already used for video ${existingOtherVideo.video_id}. Cannot unlock video ${vid}.`);
@@ -428,7 +453,7 @@ async function verifyAndCreateEntitlement(params) {
       `SELECT * FROM entitlements 
        WHERE video_id = $1 AND (razorpay_payment_id = $2 OR razorpay_order_id = $2)
        LIMIT 1`,
-      [vid, cfOrderId]
+      [vid, txnid]
     );
 
     if (existingEntitlement) {
@@ -441,13 +466,14 @@ async function verifyAndCreateEntitlement(params) {
         unlocked: true,
         video_id: vid,
         video_url: `/api/videos/${vid}/stream`,
+        stream_url: `/api/videos/${vid}/stream`,
         token: token,
         entitlement: existingEntitlement,
         already_verified: true
       };
     }
 
-    const effectiveUserId = user_id || 'usr_' + crypto.randomBytes(8).toString('hex');
+    const effectiveUserId = user_id || (payuParams?.udf2) || 'usr_' + crypto.randomBytes(8).toString('hex');
     let entitlement = null;
 
     if (isPostgres) {
@@ -469,32 +495,42 @@ async function verifyAndCreateEntitlement(params) {
         vid,
         normalizedEmail,
         normalizedPhone,
-        cfOrderId,
-        cfOrderId,
-        VIDEO_AMOUNT_PAISE
+        String(mihpayid),
+        String(txnid),
+        900
       ]);
 
+      // Activate user subscription in subscriptions table as requested:
       try {
-        await query.raw(
-          `INSERT INTO video_entitlements 
-            (user_id, video_id, payment_id, amount, status, purchased_at, customer_email, customer_phone)
-           VALUES ($1, $2, $3, $4, 'active', CURRENT_TIMESTAMP, $5, $6)
-           ON CONFLICT (user_id, video_id) DO UPDATE 
-           SET status = 'active',
-               payment_id = EXCLUDED.payment_id,
-               customer_email = COALESCE(NULLIF(EXCLUDED.customer_email, ''), video_entitlements.customer_email),
-               customer_phone = COALESCE(NULLIF(EXCLUDED.customer_phone, ''), video_entitlements.customer_phone),
-               purchased_at = CURRENT_TIMESTAMP`,
-          [effectiveUserId, vid, cfOrderId, VIDEO_AMOUNT_PAISE, normalizedEmail || null, normalizedPhone || null]
-        );
-      } catch (_) {}
+        await query.raw(`
+          INSERT INTO subscriptions 
+            (user_id, customer_email, customer_phone, razorpay_subscription_id, razorpay_payment_id, plan_id, status, current_period_start, current_period_end, updated_at)
+          VALUES ($1, $2, $3, $4, $5, 'payu_premium_monthly', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days', CURRENT_TIMESTAMP)
+          ON CONFLICT (razorpay_subscription_id) DO UPDATE
+          SET status = 'active',
+              current_period_end = CURRENT_TIMESTAMP + INTERVAL '30 days',
+              updated_at = CURRENT_TIMESTAMP
+        `, [effectiveUserId, normalizedEmail, normalizedPhone, String(txnid), String(mihpayid)]);
+      } catch (subErr) {
+        console.warn('Subscription upsert note:', subErr.message);
+      }
     } else {
-      await query.run(
-        `INSERT OR REPLACE INTO entitlements 
-          (user_id, video_id, customer_email, customer_phone, razorpay_payment_id, razorpay_order_id, amount, status, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', CURRENT_TIMESTAMP)`,
-        [effectiveUserId, vid, normalizedEmail, normalizedPhone, cfOrderId, cfOrderId, VIDEO_AMOUNT_PAISE]
+      const existing = await query.get(
+        'SELECT * FROM entitlements WHERE user_id = $1 AND video_id = $2',
+        [effectiveUserId, vid]
       );
+      if (existing) {
+        await query.raw(
+          `UPDATE entitlements SET status = 'active', customer_email = $1, customer_phone = $2, razorpay_payment_id = $3, razorpay_order_id = $4, updated_at = datetime('now') WHERE id = $5`,
+          [normalizedEmail, normalizedPhone, String(mihpayid), String(txnid), existing.id]
+        );
+      } else {
+        await query.raw(
+          `INSERT INTO entitlements (user_id, video_id, customer_email, customer_phone, razorpay_payment_id, razorpay_order_id, amount, status, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', datetime('now'), datetime('now'))`,
+          [effectiveUserId, vid, normalizedEmail, normalizedPhone, String(mihpayid), String(txnid), 900]
+        );
+      }
       entitlement = await query.get(
         'SELECT * FROM entitlements WHERE user_id = $1 AND video_id = $2',
         [effectiveUserId, vid]
@@ -511,10 +547,12 @@ async function verifyAndCreateEntitlement(params) {
       unlocked: true,
       video_id: vid,
       video_url: `/api/videos/${vid}/stream`,
+      stream_url: `/api/videos/${vid}/stream`,
       token: token,
       entitlement: entitlement
     };
   }
+
 
   const isRealRazorpay = isRazorpayConfigured() && razorpayInstance;
 

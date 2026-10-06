@@ -47,6 +47,14 @@ const {
   createCashfreeOrder,
   verifyCashfreeOrder
 } = require('./services/cashfree');
+const {
+  isPayUConfigured,
+  getPayUPublicConfig,
+  generatePaymentHash,
+  verifyReturnHash,
+  verifyPaymentWithPayU,
+  createPayUPaymentPayload
+} = require('./services/payu');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1085,13 +1093,16 @@ app.post(['/api/entitlements/create-order', '/api/payment/create-order'], async 
 
     const ctx = resolveUserContext(req);
     const userId = ctx.userId || req.cookies?.vh_uid || 'usr_' + crypto.randomBytes(8).toString('hex');
+    const host = `${req.protocol}://${req.get('host')}`;
 
     const orderData = await createOrderForVideo({
       video_id,
       user_id: userId,
       email: email || ctx.email,
       phone,
-      return_url: req.body.return_url || `${req.protocol}://${req.get('host')}/video/${video_id}?cf_order_id={order_id}`
+      host,
+      surl: `${host}/api/payment/payu/success`,
+      furl: `${host}/api/payment/payu/failure`
     });
 
     res.json(orderData);
@@ -1104,9 +1115,10 @@ app.post(['/api/entitlements/create-order', '/api/payment/create-order'], async 
 // Server-side payment verification and entitlement creation for a specific video
 app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) => {
   try {
-    const video_id = req.body.video_id || req.body.videoId;
-    const order_id = req.body.order_id || req.body.cf_order_id || req.body.orderId || req.body.razorpay_order_id;
-    const razorpay_payment_id = req.body.razorpay_payment_id || req.body.paymentId || req.body.razorpayPaymentId || order_id;
+    const video_id = req.body.video_id || req.body.videoId || req.body.udf1;
+    const txnid = req.body.txnid || req.body.order_id || req.body.cf_order_id || req.body.orderId || req.body.razorpay_order_id;
+    const order_id = txnid;
+    const razorpay_payment_id = req.body.mihpayid || req.body.razorpay_payment_id || req.body.paymentId || req.body.razorpayPaymentId || order_id;
     const razorpay_order_id = req.body.razorpay_order_id || req.body.orderId || order_id;
     const razorpay_signature = req.body.razorpay_signature || req.body.signature || req.body.razorpaySignature;
     const email = req.body.email || req.body.customerEmail || req.body.customer_email;
@@ -1115,7 +1127,7 @@ app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) =
     if (!video_id) {
       return res.status(400).json({ error: 'video_id is required for verification', unlocked: false });
     }
-    if (!razorpay_payment_id && !order_id) {
+    if (!razorpay_payment_id && !order_id && !txnid) {
       return res.status(400).json({ error: 'Payment ID or Order ID is required for verification', unlocked: false });
     }
 
@@ -1135,10 +1147,15 @@ app.post(['/api/entitlements/verify', '/api/payment/verify'], async (req, res) =
     const verification = await verifyAndCreateEntitlement({
       video_id,
       order_id,
+      txnid,
       cf_order_id: order_id,
       razorpay_payment_id,
       razorpay_order_id,
       razorpay_signature,
+      payu_params: req.body,
+      hash: req.body.hash,
+      status: req.body.status,
+      mihpayid: req.body.mihpayid,
       user_id: userId,
       email: effectiveEmail,
       phone
@@ -1260,6 +1277,109 @@ app.post(['/api/entitlements/restore', '/api/user/restore'], async (req, res) =>
   } catch (err) {
     console.error('Error restoring entitlements:', err);
     res.status(500).json({ error: err.message || 'Failed to restore access', restored: false });
+  }
+});
+
+// ==========================================================================
+// PAYU PRODUCTION PAYMENT INTEGRATION (CALLBACKS & S2S VERIFICATION)
+// ==========================================================================
+
+// PayU Success Callback Endpoint (surl)
+app.post(['/api/payment/payu/success', '/payment/payu/success'], async (req, res) => {
+  try {
+    const rawPayload = req.body || {};
+    const videoId = parseInt(rawPayload.udf1 || (rawPayload.txnid && rawPayload.txnid.split('_')[2]), 10);
+    const txnid = rawPayload.txnid;
+    const email = rawPayload.email || '';
+    const phone = rawPayload.phone || '';
+    const ctx = resolveUserContext(req);
+    const userId = rawPayload.udf2 || ctx.userId || req.cookies?.vh_uid || 'usr_' + crypto.randomBytes(8).toString('hex');
+
+    if (!videoId || isNaN(videoId)) {
+      console.error('PayU Success callback missing video_id');
+      return res.redirect('/?payment=missing_video');
+    }
+
+    const verification = await verifyAndCreateEntitlement({
+      video_id: videoId,
+      txnid: txnid,
+      order_id: txnid,
+      mihpayid: rawPayload.mihpayid,
+      payu_params: rawPayload,
+      user_id: userId,
+      email: email || ctx.email,
+      phone: phone
+    });
+
+    res.clearCookie('vh_pending_vid', { path: '/' });
+
+    res.cookie('vh_user_token', verification.token, {
+      maxAge: 365 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production'
+    });
+
+    return res.redirect(`/video/${videoId}?payment=success&txnid=${encodeURIComponent(txnid || '')}`);
+  } catch (err) {
+    console.error('PayU Success callback error:', err.message);
+    const vid = req.body?.udf1 || '';
+    return res.redirect(`/video/${vid || ''}?payment=failed&error=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// PayU Failure Callback Endpoint (furl)
+app.post(['/api/payment/payu/failure', '/payment/payu/failure'], async (req, res) => {
+  const rawPayload = req.body || {};
+  const videoId = rawPayload.udf1 || (rawPayload.txnid && rawPayload.txnid.split('_')[2]) || '';
+  const errorMsg = rawPayload.error_Message || rawPayload.error || rawPayload.status || 'Payment failed or cancelled';
+  console.warn(`PayU Payment failed for video ${videoId}:`, errorMsg);
+
+  res.clearCookie('vh_pending_vid', { path: '/' });
+  return res.redirect(`/video/${videoId}?payment=failed&error=${encodeURIComponent(errorMsg)}`);
+});
+
+// PayU GET redirects
+app.get(['/api/payment/payu/success', '/payment/payu/success'], (req, res) => {
+  const videoId = req.query.video_id || req.query.udf1 || '';
+  const txnid = req.query.txnid || '';
+  if (videoId) {
+    return res.redirect(`/video/${videoId}?payment=success&txnid=${encodeURIComponent(txnid)}`);
+  }
+  return res.redirect('/');
+});
+
+app.get(['/api/payment/payu/failure', '/payment/payu/failure'], (req, res) => {
+  const videoId = req.query.video_id || req.query.udf1 || '';
+  return res.redirect(`/video/${videoId}?payment=failed`);
+});
+
+// PayU Webhook / IPN Backup Verification Endpoint
+app.post(['/api/payment/payu/webhook', '/api/webhooks/payu'], async (req, res) => {
+  try {
+    const rawPayload = req.body || {};
+    const txnid = rawPayload.txnid;
+    const videoId = parseInt(rawPayload.udf1 || (txnid && txnid.split('_')[2]), 10);
+
+    if (!txnid || !videoId) {
+      return res.status(400).json({ error: 'Missing txnid or videoId' });
+    }
+
+    const verification = await verifyAndCreateEntitlement({
+      video_id: videoId,
+      txnid: txnid,
+      order_id: txnid,
+      mihpayid: rawPayload.mihpayid,
+      payu_params: rawPayload,
+      email: rawPayload.email,
+      phone: rawPayload.phone
+    });
+
+    console.log(`[PayU Webhook] Verified entitlement for video ${videoId}, txnid: ${txnid}`);
+    return res.status(200).json({ success: true, verified: true });
+  } catch (err) {
+    console.error('[PayU Webhook Error]:', err.message);
+    return res.status(400).json({ error: err.message });
   }
 });
 

@@ -8,7 +8,6 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>">
   <script defer src="https://checkout.razorpay.com/v1/checkout.js"></script>
-  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
 </head>
 <body>
 
@@ -252,9 +251,9 @@
     let activeVideoData = null;
     let verifiedUnlocked = false;
 
-    // Server-side Cashfree verification and per-video entitlement unlock
-    async function verifyCashfreePayment(orderId) {
-      if (!orderId || !currentVideoId) return false;
+    // Server-side payment verification and per-video entitlement unlock
+    async function verifyPayment(txnidOrOrderId) {
+      if (!txnidOrOrderId || !currentVideoId) return false;
       const unlockBtn = document.getElementById('btnUnlockVideo');
       const submitBtn = document.getElementById('btnSubmitPayment');
       const errorAlert = document.getElementById('unlockErrorAlert');
@@ -312,7 +311,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             video_id: currentVideoId,
-            order_id: orderId
+            txnid: txnidOrOrderId,
+            order_id: txnidOrOrderId
           })
         });
 
@@ -335,11 +335,12 @@
         resetBtns();
         return true;
       } catch (vErr) {
-        console.error('Cashfree verification failed:', vErr);
+        console.error('Payment verification failed:', vErr);
         showErr(vErr.message);
         return false;
       }
     }
+    const verifyCashfreePayment = verifyPayment;
 
     // Fetch video detail based on path /video/:id or query parameters
     async function initVideoPage() {
@@ -368,16 +369,28 @@
         return;
       }
 
-      // Check for redirect query parameters from Cashfree or Razorpay
+      // Check for redirect query parameters from PayU or payment callbacks
+      const paymentStatus = urlParams.get('payment');
+      const payuTxnid = urlParams.get('txnid');
+      const payuError = urlParams.get('error');
       const cfOrderId = urlParams.get('cf_order_id') || (!urlParams.get('razorpay_payment_id') ? urlParams.get('order_id') : null);
-      if (cfOrderId) {
+
+      if (paymentStatus === 'failed') {
+        const errorMsg = payuError ? decodeURIComponent(payuError) : 'Payment failed or was cancelled. Please try again.';
+        const unlockError = document.getElementById('unlockErrorAlert');
+        if (unlockError) {
+          unlockError.textContent = errorMsg;
+          unlockError.style.display = 'block';
+        }
+        window.history.replaceState({}, document.title, `/video/${currentVideoId}`);
+      } else if (paymentStatus === 'success' || payuTxnid || cfOrderId) {
         const loadingIndicator = document.getElementById('loadingIndicator');
         if (loadingIndicator) {
           loadingIndicator.style.display = 'block';
           const p = loadingIndicator.querySelector('p');
           if (p) p.textContent = 'Verifying payment with server...';
         }
-        await verifyCashfreePayment(cfOrderId);
+        await verifyPayment(payuTxnid || cfOrderId);
         window.history.replaceState({}, document.title, `/video/${currentVideoId}`);
       }
 
@@ -750,21 +763,20 @@
           return;
         }
 
-        // 1. CASHFREE CHECKOUT FLOW (Production & Sandbox Payment Gateway)
+        // 1. PAYU PRODUCTION CHECKOUT FLOW
         const orderRes = await fetch('/api/entitlements/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             video_id: currentVideoId,
             email: prefillEmail,
-            phone: prefillPhone,
-            return_url: `${window.location.origin}/video/${currentVideoId}?cf_order_id={order_id}`
+            phone: prefillPhone
           }),
           signal: AbortSignal.timeout(8000)
         });
         const orderData = await orderRes.json();
 
-        if (!orderRes.ok || !orderData.order_id || !orderData.payment_session_id) {
+        if (!orderRes.ok || orderData.error) {
           clearTimeout(safetyTimeout);
           const safeError = orderData?.error
             ? `Payment initialization failed: ${orderData.error}`
@@ -773,37 +785,24 @@
           return;
         }
 
-        clearTimeout(safetyTimeout);
+        if (orderData.provider === 'payu' || (orderData.action && orderData.params)) {
+          clearTimeout(safetyTimeout);
+          // Submit form directly to PayU Production endpoint
+          const form = document.createElement('form');
+          form.method = 'POST';
+          form.action = orderData.action || 'https://secure.payu.in/_payment';
+          form.style.display = 'none';
 
-        // Ensure Cashfree SDK is loaded with correct mode (production for live, sandbox for test)
-        let cashfree = null;
-        const sdkMode = (orderData.environment === 'production' || orderData.environment === 'live' || config?.environment === 'production') ? 'production' : (orderData.environment || 'production');
-        if (typeof window.Cashfree === 'function') {
-          cashfree = window.Cashfree({ mode: sdkMode });
-        } else {
-          for (let i = 0; i < 30; i++) {
-            await new Promise(r => setTimeout(r, 100));
-            if (typeof window.Cashfree === 'function') {
-              cashfree = window.Cashfree({ mode: sdkMode });
-              break;
-            }
+          for (const [k, v] of Object.entries(orderData.params)) {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = k;
+            input.value = v != null ? String(v) : '';
+            form.appendChild(input);
           }
-        }
 
-        if (cashfree) {
-          try {
-            await cashfree.checkout({
-              paymentSessionId: orderData.payment_session_id,
-              redirectTarget: '_modal'
-            });
-            await verifyCashfreePayment(orderData.order_id);
-          } catch (sdkErr) {
-            console.warn('Cashfree SDK event:', sdkErr);
-            await verifyCashfreePayment(orderData.order_id);
-          }
-          return;
-        } else {
-          showErrorMessage('Cashfree payment SDK is loading. Please reload the page and try again.');
+          document.body.appendChild(form);
+          form.submit();
           return;
         }
 
