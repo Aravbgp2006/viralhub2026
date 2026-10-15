@@ -271,7 +271,6 @@
       card.innerHTML = `
         <div class="video-card-thumb-wrapper">
           <img class="video-card-thumb" src="${video.thumbnail}" alt="${video.title}" loading="${index < 4 ? 'eager' : 'lazy'}">
-          <span class="video-badge-duration">${video.duration}</span>
           <div class="video-play-overlay" aria-hidden="true">
             <div class="video-play-btn">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -356,7 +355,7 @@
     detailBadge.textContent = video.badge;
     detailDescription.textContent = video.description;
     likeCountDisplay.textContent = video.likes;
-    durationDisplay.textContent = video.duration;
+    if (durationDisplay) durationDisplay.textContent = '';
     currentTimeDisplay.textContent = "00:00";
     progressPlayed.style.width = "0%";
 
@@ -752,7 +751,6 @@
       card.innerHTML = `
         <div class="related-thumb-box">
           <img class="related-thumb" src="${video.thumbnail}" alt="${video.title}" loading="lazy">
-          <span class="related-duration">${video.duration}</span>
         </div>
         <div class="related-info">
           <h4 class="related-video-title">${video.title}</h4>

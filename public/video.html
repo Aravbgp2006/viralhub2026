@@ -135,8 +135,6 @@
             <!-- Description Card -->
             <div class="detail-desc-card">
               <div class="desc-stats-line">
-                <span id="videoDurationBadge" class="detail-duration-pill" style="display: none; font-family: var(--font-mono); font-weight: 700; font-size: 0.8125rem; background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 4px; letter-spacing: 0.02em;">00:00</span>
-                <span id="videoDurationSep" style="display: none;"> · </span>
                 <span id="videoViews">0 views</span> · <span id="videoDate">Recently</span> · <span id="categoryBadge" class="category-tag">LATEST</span>
                 <span id="subStatusBadge" class="badge-premium-active" style="display: none; margin-left: 8px;">✨ Premium Active</span>
               </div>
@@ -536,13 +534,6 @@
         document.getElementById('categoryBadge').textContent = (video.category || 'LATEST').toUpperCase();
         document.getElementById('videoDescription').textContent = video.description || 'No description provided.';
 
-        const durationBadge = document.getElementById('videoDurationBadge');
-        const durationSep = document.getElementById('videoDurationSep');
-        if (durationBadge && video.duration) {
-          durationBadge.textContent = video.duration;
-          durationBadge.style.display = 'inline-block';
-          if (durationSep) durationSep.style.display = 'inline';
-        }
 
         const player = document.getElementById('detailPlayer');
         const lockOverlay = document.getElementById('videoLockOverlay');
@@ -599,7 +590,6 @@
             item.innerHTML = `
               <div class="related-thumb-box ${relAspectClass}">
                 <img class="related-thumb" src="${relThumb}" alt="${rel.title}" onerror="this.src='/uploads/thumbnails/seed-thumb-1.svg'">
-                <span class="related-duration">${rel.duration || '00:00'}</span>
               </div>
               <div class="related-info">
                 <h4 class="related-video-title">${rel.title}</h4>

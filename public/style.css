@@ -602,21 +602,14 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   transform: scale(1.03);
 }
 
-/* Duration badge */
-.video-badge-duration {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  background-color: rgba(0, 0, 0, 0.85);
-  color: #FFFFFF;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 3px 6px;
-  border-radius: var(--radius-sm);
-  letter-spacing: 0.02em;
-  backdrop-filter: blur(4px);
-  z-index: 2;
+/* Duration badge - Hidden on public website */
+.video-badge-duration,
+.related-duration,
+.detail-duration-pill,
+#videoDurationBadge,
+#videoDurationSep,
+#durationDisplay {
+  display: none !important;
 }
 
 /* Play button overlay */
@@ -1302,15 +1295,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 }
 
 .related-duration {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  background-color: rgba(0, 0, 0, 0.85);
-  color: #FFFFFF;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  padding: 2px 4px;
-  border-radius: 2px;
+  display: none !important;
 }
 
 .related-info {
