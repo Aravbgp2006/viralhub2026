@@ -97,6 +97,17 @@
           <div class="detail-info-box">
             <h1 id="videoTitle" class="detail-video-title">Video Title</h1>
 
+            <div class="detail-channel-name" style="margin-bottom: 4px; font-size: 0.9375rem; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+              <span>ViralHub · <span id="categoryBadge">LATEST</span></span>
+              <svg class="channel-check-icon" viewBox="0 0 24 24" fill="currentColor" aria-label="Verified">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+              </svg>
+            </div>
+
+            <div class="detail-views-row" style="margin-bottom: 16px; font-size: 0.875rem; color: var(--text-secondary); font-weight: 500;">
+              <span id="videoViews">0 views</span>
+            </div>
+
             <div class="detail-actions-bar">
               <div class="detail-channel-block">
                 <div class="detail-avatar-large" id="channelAvatar">VH</div>
@@ -134,9 +145,8 @@
 
             <!-- Description Card -->
             <div class="detail-desc-card">
-              <div class="desc-stats-line">
-                <span id="videoViews">0 views</span> · <span id="videoDate">Recently</span> · <span id="categoryBadge" class="category-tag">LATEST</span>
-                <span id="subStatusBadge" class="badge-premium-active" style="display: none; margin-left: 8px;">✨ Premium Active</span>
+              <div class="desc-stats-line" style="margin-bottom: 8px;">
+                <span id="subStatusBadge" class="badge-premium-active" style="display: none;">✨ Premium Active</span>
               </div>
               <p id="videoDescription" class="desc-text">Description...</p>
             </div>
@@ -530,7 +540,6 @@
         document.getElementById('channelAvatar').textContent = (video.title || 'V').substring(0, 2).toUpperCase();
         document.getElementById('videoViews').textContent = formatViews(video.views);
         document.getElementById('videoViews').title = `${Number(video.views || 0).toLocaleString()} views`;
-        document.getElementById('videoDate').textContent = formatDate(video.created_at);
         document.getElementById('categoryBadge').textContent = (video.category || 'LATEST').toUpperCase();
         document.getElementById('videoDescription').textContent = video.description || 'No description provided.';
 
@@ -594,7 +603,7 @@
               <div class="related-info">
                 <h4 class="related-video-title">${rel.title}</h4>
                 <div class="related-channel">ViralHub · ${(rel.category || 'latest').toUpperCase()}</div>
-                <div class="related-meta">${formatViews(rel.views)} · ${formatDate(rel.created_at)}</div>
+                <div class="related-meta">${formatViews(rel.views)}</div>
               </div>
             `;
             relatedList.appendChild(item);
@@ -1002,16 +1011,6 @@
       document.getElementById('loadingIndicator').style.display = 'none';
       document.getElementById('errorMessage').textContent = msg;
       document.getElementById('errorState').style.display = 'block';
-    }
-
-    function formatDate(dateStr) {
-      if (!dateStr) return 'Recently';
-      const date = new Date(dateStr);
-      const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-      if (diff < 60) return 'Just now';
-      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-      return date.toLocaleDateString();
     }
 
     // Interactive buttons

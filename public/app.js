@@ -48,7 +48,6 @@
   const detailChannelAvatar = document.getElementById('detailChannelAvatar');
   const detailChannelName = document.getElementById('detailChannelName');
   const detailViewCount = document.getElementById('detailViewCount');
-  const detailUploadDate = document.getElementById('detailUploadDate');
   const detailBadge = document.getElementById('detailBadge');
   const detailDescription = document.getElementById('detailDescription');
   const relatedVideoList = document.getElementById('relatedVideoList');
@@ -199,7 +198,7 @@
       card.className = `video-card ${aspectClass}`;
       card.setAttribute('role', 'article');
       card.setAttribute('tabindex', '0');
-      card.setAttribute('aria-label', `${video.title}, ${formatViews(video.views)}, ${formatDate(video.created_at)}`);
+      card.setAttribute('aria-label', `${video.title}, ${formatViews(video.views)}`);
       card.dataset.id = video.id;
 
       card.innerHTML = `
@@ -224,8 +223,6 @@
               </svg>
             </div>
             <div class="video-stats-row">
-              <span>${formatDate(video.created_at)}</span>
-              <span class="stat-divider">·</span>
               <span>${formatViews(video.views)}</span>
             </div>
           </div>
@@ -259,18 +256,6 @@
       return `${thousands}K views`;
     }
     return `${num.toLocaleString()} views`;
-  }
-
-  function formatDate(dateStr) {
-    if (!dateStr) return 'Recently';
-    const date = new Date(dateStr);
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-
-    if (diff < 60) return 'Just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-    return date.toLocaleDateString();
   }
 
   // ========================================================================

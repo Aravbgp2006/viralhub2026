@@ -265,7 +265,7 @@
       card.className = 'video-card';
       card.setAttribute('role', 'article');
       card.setAttribute('tabindex', '0');
-      card.setAttribute('aria-label', `${video.title}, ${video.views}, ${video.uploadTime}`);
+      card.setAttribute('aria-label', `${video.title}, ${video.views}`);
       card.dataset.id = video.id;
 
       card.innerHTML = `
@@ -284,7 +284,7 @@
           <div class="video-meta-wrapper">
             <h3 class="video-card-title">${video.title}</h3>
             <div class="video-channel-name">
-              <span>${video.channel.name}</span>
+              <span>ViralHub · LATEST</span>
               ${video.channel.verified ? `
                 <svg class="channel-check-icon" viewBox="0 0 24 24" fill="currentColor" aria-label="Verified">
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
@@ -292,8 +292,6 @@
               ` : ''}
             </div>
             <div class="video-stats-row">
-              <span>${video.uploadTime}</span>
-              <span class="stat-divider">·</span>
               <span>${video.views}</span>
             </div>
           </div>
@@ -351,8 +349,8 @@
     detailChannelName.textContent = video.channel.name;
     detailChannelSubs.textContent = `${video.channel.subscribers} subscribers`;
     detailViewCount.textContent = video.views;
-    detailUploadDate.textContent = video.uploadTime;
-    detailBadge.textContent = video.badge;
+    if (detailUploadDate) detailUploadDate.textContent = '';
+    detailBadge.textContent = 'LATEST';
     detailDescription.textContent = video.description;
     likeCountDisplay.textContent = video.likes;
     if (durationDisplay) durationDisplay.textContent = '';
@@ -754,8 +752,8 @@
         </div>
         <div class="related-info">
           <h4 class="related-video-title">${video.title}</h4>
-          <div class="related-channel">${video.channel.name}</div>
-          <div class="related-meta">${video.views} · ${video.uploadTime}</div>
+          <div class="related-channel">ViralHub · LATEST</div>
+          <div class="related-meta">${video.views}</div>
         </div>
       `;
 
