@@ -250,6 +250,7 @@ async function initDatabase() {
             duration VARCHAR(20) DEFAULT '00:00',
             duration_seconds INTEGER,
             thumbnail_aspect_ratio VARCHAR(10) DEFAULT '16:9',
+            display_duration VARCHAR(20),
             published BOOLEAN DEFAULT TRUE,
             views BIGINT DEFAULT 0,
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -258,6 +259,7 @@ async function initDatabase() {
           -- Safe non-destructive column addition for existing production databases
           ALTER TABLE videos ADD COLUMN IF NOT EXISTS duration_seconds INTEGER;
           ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_aspect_ratio VARCHAR(10) DEFAULT '16:9';
+          ALTER TABLE videos ADD COLUMN IF NOT EXISTS display_duration VARCHAR(20);
 
           CREATE INDEX IF NOT EXISTS idx_videos_published ON videos (published);
           CREATE INDEX IF NOT EXISTS idx_videos_category ON videos (category);
@@ -393,6 +395,8 @@ async function initDatabase() {
         thumbnail_path TEXT NOT NULL,
         duration TEXT DEFAULT '00:00',
         duration_seconds INTEGER,
+        display_duration TEXT,
+        thumbnail_aspect_ratio TEXT DEFAULT '16:9',
         published INTEGER DEFAULT 1,
         views INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -506,6 +510,9 @@ async function initDatabase() {
           if (!colNames.includes('thumbnail_aspect_ratio')) {
             await new Promise(r => sqliteDb.run("ALTER TABLE videos ADD COLUMN thumbnail_aspect_ratio TEXT DEFAULT '16:9'", r));
             await new Promise(r => sqliteDb.run("UPDATE videos SET thumbnail_aspect_ratio = '16:9' WHERE thumbnail_aspect_ratio IS NULL", r));
+          }
+          if (!colNames.includes('display_duration')) {
+            await new Promise(r => sqliteDb.run("ALTER TABLE videos ADD COLUMN display_duration TEXT", r));
           }
         }
         resolve();

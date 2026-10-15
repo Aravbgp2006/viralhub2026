@@ -90,6 +90,48 @@
     return `${String(mins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
   }
 
+  function validateDisplayDuration(input) {
+    if (input === null || input === undefined) {
+      return { valid: true, formatted: null, raw: null };
+    }
+    const str = String(input).trim();
+    if (str === '') {
+      return { valid: true, formatted: null, raw: null };
+    }
+
+    const match = str.match(/^(?:(\d{1,3}):)?([0-5]?\d):([0-5]\d)$/);
+    if (!match) {
+      return {
+        valid: false,
+        error: 'Invalid Display Duration format. Please use MM:SS (e.g. 3:00, 12:45) or HH:MM:SS (e.g. 1:05:30).'
+      };
+    }
+
+    const hoursStr = match[1];
+    const minsStr = match[2];
+    const secsStr = match[3];
+
+    const hours = hoursStr !== undefined ? parseInt(hoursStr, 10) : 0;
+    const mins = parseInt(minsStr, 10);
+    const secs = parseInt(secsStr, 10);
+
+    if (hoursStr !== undefined && mins >= 60) {
+      return {
+        valid: false,
+        error: 'Invalid Display Duration format. Minutes must be between 00 and 59 when hours are specified.'
+      };
+    }
+
+    let formatted;
+    if (hours > 0) {
+      formatted = `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    } else {
+      formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    return { valid: true, formatted, raw: str };
+  }
+
   function extractVideoDuration(file) {
     return new Promise((resolve) => {
       try {
@@ -1516,6 +1558,8 @@
     cropSourceFile = null;
     const addInitialViews = document.getElementById('addInitialViews');
     if (addInitialViews) addInitialViews.value = '0';
+    const addDisplayDuration = document.getElementById('addDisplayDuration');
+    if (addDisplayDuration) addDisplayDuration.value = '';
     thumbSelectedName.textContent = '';
     videoSelectedName.textContent = '';
     addErrorBanner.style.display = 'none';
@@ -1603,6 +1647,19 @@
       showAddError(err.message);
       document.getElementById('addInitialViews').focus();
       return;
+    }
+
+    // Validate Display Duration (Optional, e.g. 3:00, 12:45, 1:05:30)
+    const displayDurationInput = document.getElementById('addDisplayDuration') ? document.getElementById('addDisplayDuration').value.trim() : '';
+    let displayDuration = null;
+    if (displayDurationInput) {
+      const check = validateDisplayDuration(displayDurationInput);
+      if (!check.valid) {
+        showAddError(check.error);
+        document.getElementById('addDisplayDuration').focus();
+        return;
+      }
+      displayDuration = check.raw;
     }
 
     if (!thumbFile) {
@@ -1708,6 +1765,7 @@
             video_url: videoBlob.url,
             thumbnail_url: thumbBlob.url,
             duration_seconds: addVideoDurationSeconds,
+            display_duration: displayDuration,
             thumbnail_aspect_ratio: selectedThumbRatio
           })
         });
@@ -1753,6 +1811,9 @@
     formData.append('video', videoFile);
     if (addVideoDurationSeconds) {
       formData.append('duration_seconds', addVideoDurationSeconds);
+    }
+    if (displayDuration) {
+      formData.append('display_duration', displayDuration);
     }
 
     if (btnSubmitText) btnSubmitText.textContent = 'Uploading 0%...';
@@ -1838,6 +1899,9 @@
 
     const editViews = document.getElementById('editViews');
     if (editViews) editViews.value = video.views !== undefined ? video.views : 0;
+
+    const editDisplayDuration = document.getElementById('editDisplayDuration');
+    if (editDisplayDuration) editDisplayDuration.value = video.display_duration || '';
 
     const existingRatio = video.thumbnail_aspect_ratio === '9:16' ? '9:16' : '16:9';
     const ratioRadio = document.querySelector(`input[name="editThumbFormat"][value="${existingRatio}"]`);
@@ -1937,6 +2001,20 @@
       return;
     }
 
+    // Validate Display Duration (Optional, e.g. 3:00, 12:45, 1:05:30)
+    const displayDurationInput = document.getElementById('editDisplayDuration') ? document.getElementById('editDisplayDuration').value.trim() : '';
+    let displayDuration = null;
+    if (displayDurationInput) {
+      const check = validateDisplayDuration(displayDurationInput);
+      if (!check.valid) {
+        editErrorBanner.textContent = check.error;
+        editErrorBanner.style.display = 'block';
+        document.getElementById('editDisplayDuration').focus();
+        return;
+      }
+      displayDuration = check.raw;
+    }
+
     if (newThumb) {
       const validThumbExts = ['.jpg', '.jpeg', '.png', '.webp'];
       const thumbExt = newThumb.name ? '.' + newThumb.name.split('.').pop().toLowerCase() : '';
@@ -2029,7 +2107,8 @@
           category,
           views: viewsVal,
           published,
-          thumbnail_aspect_ratio: selectedEditThumbRatio
+          thumbnail_aspect_ratio: selectedEditThumbRatio,
+          display_duration: displayDuration
         };
         if (newThumbUrl) updatePayload.thumbnail_url = newThumbUrl;
         if (newVideoUrl) {
@@ -2089,7 +2168,8 @@
         category,
         views: viewsVal,
         published,
-        thumbnail_aspect_ratio: selectedEditThumbRatio
+        thumbnail_aspect_ratio: selectedEditThumbRatio,
+        display_duration: displayDuration
       });
     } else {
       // Local fallback multipart FormData
@@ -2100,6 +2180,7 @@
       formData.append('views', viewsVal);
       formData.append('published', published);
       formData.append('thumbnail_aspect_ratio', selectedEditThumbRatio);
+      formData.append('display_duration', displayDuration !== null ? displayDuration : '');
       if (newThumb) formData.append('thumbnail', newThumb);
       if (newVideo) {
         formData.append('video', newVideo);

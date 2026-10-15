@@ -2702,6 +2702,9 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  box-sizing: border-box;
   gap: 8px;
   transition: transform var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);

@@ -230,6 +230,58 @@ function parseDurationToSeconds(durationStr) {
   return null;
 }
 
+// Validates display duration string (e.g. "3:00", "12:45", "1:05:30")
+function validateDisplayDuration(input) {
+  if (input === null || input === undefined) {
+    return { valid: true, formatted: null, raw: null };
+  }
+  const str = String(input).trim();
+  if (str === '') {
+    return { valid: true, formatted: null, raw: null };
+  }
+
+  const match = str.match(/^(?:(\d{1,3}):)?([0-5]?\d):([0-5]\d)$/);
+  if (!match) {
+    return {
+      valid: false,
+      error: 'Invalid Display Duration format. Please use MM:SS (e.g. 3:00, 12:45) or HH:MM:SS (e.g. 1:05:30).'
+    };
+  }
+
+  const hoursStr = match[1];
+  const minsStr = match[2];
+  const secsStr = match[3];
+
+  const hours = hoursStr !== undefined ? parseInt(hoursStr, 10) : 0;
+  const mins = parseInt(minsStr, 10);
+  const secs = parseInt(secsStr, 10);
+
+  if (hoursStr !== undefined && mins >= 60) {
+    return {
+      valid: false,
+      error: 'Invalid Display Duration format. Minutes must be between 00 and 59 when hours are specified.'
+    };
+  }
+
+  let formatted;
+  if (hours > 0) {
+    formatted = `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  } else {
+    formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  return { valid: true, formatted, raw: str };
+}
+
+// Computes the effective displayed duration label, prioritizing configured display_duration over actual duration
+function resolveEffectiveDuration(displayDuration, durationSeconds, fallbackDuration) {
+  const check = validateDisplayDuration(displayDuration);
+  if (check.valid && check.formatted) {
+    return check.formatted;
+  }
+  return formatDuration(durationSeconds) || fallbackDuration || '00:00';
+}
+
 // Helper to determine if requester is an authenticated administrator
 function resolveIsAdmin(req) {
   return Boolean(req.cookies && verifyAuthToken(req.cookies.admin_token));
@@ -481,6 +533,7 @@ app.get('/api/videos', async (req, res) => {
         COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
         duration, 
         duration_seconds,
+        display_duration,
         published, 
         views, 
         created_at
@@ -522,7 +575,8 @@ app.get('/api/videos', async (req, res) => {
         thumbnail_path: thumbUrl,
         thumbnail_url: thumbUrl,
         thumbnail_aspect_ratio: v.thumbnail_aspect_ratio || '16:9',
-        duration: formatDuration(durSec) || v.duration || '00:00',
+        duration: resolveEffectiveDuration(v.display_duration, durSec, v.duration),
+        display_duration: v.display_duration || null,
         duration_seconds: durSec,
         video_url: null,
         video_path: null,
@@ -558,6 +612,7 @@ app.get('/api/videos/:id', async (req, res) => {
          COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
          duration, 
          duration_seconds,
+         display_duration,
          published, 
          views, 
          created_at
@@ -580,6 +635,7 @@ app.get('/api/videos/:id', async (req, res) => {
            COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
            duration, 
            duration_seconds,
+           display_duration,
            published, 
            views, 
            created_at
@@ -631,6 +687,7 @@ app.get('/api/videos/:id', async (req, res) => {
          category, 
          duration, 
          duration_seconds,
+         display_duration,
          views, 
          created_at 
        FROM videos 
@@ -647,7 +704,8 @@ app.get('/api/videos/:id', async (req, res) => {
 
     const durSec = video.duration_seconds !== null && video.duration_seconds !== undefined ? Number(video.duration_seconds) : parseDurationToSeconds(video.duration);
     video.duration_seconds = durSec;
-    video.duration = formatDuration(durSec) || video.duration || '00:00';
+    video.duration = resolveEffectiveDuration(video.display_duration, durSec, video.duration);
+    video.display_duration = video.display_duration || null;
     video.thumbnail_path = `/api/videos/${videoId}/thumbnail`;
     video.thumbnail_url = `/api/videos/${videoId}/thumbnail`;
     video.thumbnail_aspect_ratio = video.thumbnail_aspect_ratio || '16:9';
@@ -670,7 +728,8 @@ app.get('/api/videos/:id', async (req, res) => {
         thumbnail_path: rThumb,
         thumbnail_url: rThumb,
         thumbnail_aspect_ratio: r.thumbnail_aspect_ratio || '16:9',
-        duration: formatDuration(rSec) || r.duration || '00:00',
+        duration: resolveEffectiveDuration(r.display_duration, rSec, r.duration),
+        display_duration: r.display_duration || null,
         duration_seconds: rSec,
         video_url: null,
         video_path: null,
@@ -1712,6 +1771,7 @@ app.get('/api/admin/videos', requireAdminApi, async (req, res) => {
         COALESCE(thumbnail_aspect_ratio, '16:9') AS thumbnail_aspect_ratio,
         duration, 
         duration_seconds,
+        display_duration,
         published, 
         views, 
         created_at
@@ -1726,7 +1786,8 @@ app.get('/api/admin/videos', requireAdminApi, async (req, res) => {
         thumbnail_path: thumbUrl,
         thumbnail_url: thumbUrl,
         thumbnail_aspect_ratio: v.thumbnail_aspect_ratio || '16:9',
-        duration: formatDuration(durSec) || v.duration || '00:00',
+        duration: resolveEffectiveDuration(v.display_duration, durSec, v.duration),
+        display_duration: v.display_duration || null,
         duration_seconds: durSec,
         published: v.published === true || v.published === 1 ? 1 : 0
       };
@@ -1932,6 +1993,15 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
 
     const thumbnail_aspect_ratio = req.body.thumbnail_aspect_ratio === '9:16' ? '9:16' : '16:9';
 
+    let display_duration = null;
+    if (req.body.display_duration !== undefined && req.body.display_duration !== null && String(req.body.display_duration).trim() !== '') {
+      const displayCheck = validateDisplayDuration(req.body.display_duration);
+      if (!displayCheck.valid) {
+        return res.status(400).json({ error: displayCheck.error });
+      }
+      display_duration = displayCheck.raw;
+    }
+
     const result = await query.get(
       `INSERT INTO videos (
          title, 
@@ -1944,10 +2014,11 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
          duration, 
          duration_seconds,
          published, 
-         views,
-         thumbnail_aspect_ratio
+         views, 
+         thumbnail_aspect_ratio,
+         display_duration
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [
         title.trim(),
@@ -1961,14 +2032,19 @@ app.post('/api/videos', requireAdminApi, conditionalUpload, async (req, res) => 
         duration_seconds,
         Boolean(isPublished),
         initialViews,
-        thumbnail_aspect_ratio
+        thumbnail_aspect_ratio,
+        display_duration
       ]
     );
 
+    const durSec = result.duration_seconds !== null && result.duration_seconds !== undefined ? Number(result.duration_seconds) : parseDurationToSeconds(result.duration);
     const newVideo = {
       ...result,
       views: Number(result.views || 0),
-      published: result.published === true || result.published === 1 ? 1 : 0
+      published: result.published === true || result.published === 1 ? 1 : 0,
+      duration: resolveEffectiveDuration(result.display_duration, durSec, result.duration),
+      display_duration: result.display_duration || null,
+      duration_seconds: durSec
     };
     console.log(`🎬 New video added: ID ${newVideo.id} - "${newVideo.title}" (${newVideo.thumbnail_aspect_ratio || '16:9'})`);
     res.status(201).json({ success: true, video: newVideo });
@@ -2076,6 +2152,19 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
       ? '9:16'
       : (req.body.thumbnail_aspect_ratio === '16:9' ? '16:9' : (existingVideo.thumbnail_aspect_ratio || '16:9'));
 
+    let display_duration = existingVideo.display_duration;
+    if (req.body.display_duration !== undefined) {
+      if (req.body.display_duration === null || String(req.body.display_duration).trim() === '') {
+        display_duration = null;
+      } else {
+        const check = validateDisplayDuration(req.body.display_duration);
+        if (!check.valid) {
+          return res.status(400).json({ error: check.error });
+        }
+        display_duration = check.raw;
+      }
+    }
+
     // 1. Update database record first
     const updated = await query.get(
       `UPDATE videos 
@@ -2091,8 +2180,9 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
          duration_seconds = $9,
          published = $10, 
          views = $11,
-         thumbnail_aspect_ratio = $12
-       WHERE id = $13
+         thumbnail_aspect_ratio = $12,
+         display_duration = $13
+       WHERE id = $14
        RETURNING *`,
       [
         title.trim(),
@@ -2107,6 +2197,7 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
         Boolean(isPublished),
         updatedViews,
         thumbnail_aspect_ratio,
+        display_duration,
         videoId
       ]
     );
@@ -2136,10 +2227,14 @@ app.put('/api/videos/:id', requireAdminApi, conditionalUpload, async (req, res) 
       }
     }
 
+    const durSec = updated.duration_seconds !== null && updated.duration_seconds !== undefined ? Number(updated.duration_seconds) : parseDurationToSeconds(updated.duration);
     const updatedVideo = {
       ...updated,
       views: Number(updated.views || 0),
-      published: updated.published === true || updated.published === 1 ? 1 : 0
+      published: updated.published === true || updated.published === 1 ? 1 : 0,
+      duration: resolveEffectiveDuration(updated.display_duration, durSec, updated.duration),
+      display_duration: updated.display_duration || null,
+      duration_seconds: durSec
     };
     console.log(`✏️ Video updated: ID ${videoId} - "${updatedVideo.title}" (Views: ${updatedVideo.views})`);
     res.json({ success: true, video: updatedVideo });

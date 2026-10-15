@@ -84,10 +84,6 @@
                 <p class="lock-subtitle">Unlock Premium Access</p>
                 <div class="lock-price-tag">₹9<span class="lock-price-period">/month</span></div>
                 <button id="btnUnlockVideo" class="btn-unlock-premium" type="button" aria-label="Unlock for ₹9/month">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                  </svg>
                   <span>Unlock for ₹9/month</span>
                 </button>
                 <div id="unlockErrorAlert" style="display: none; color: #ff6b6b; font-size: 0.8125rem; margin-top: 10px; max-width: 320px; text-align: center;"></div>
@@ -139,6 +135,8 @@
             <!-- Description Card -->
             <div class="detail-desc-card">
               <div class="desc-stats-line">
+                <span id="videoDurationBadge" class="detail-duration-pill" style="display: none; font-family: var(--font-mono); font-weight: 700; font-size: 0.8125rem; background: rgba(255, 255, 255, 0.1); padding: 2px 8px; border-radius: 4px; letter-spacing: 0.02em;">00:00</span>
+                <span id="videoDurationSep" style="display: none;"> · </span>
                 <span id="videoViews">0 views</span> · <span id="videoDate">Recently</span> · <span id="categoryBadge" class="category-tag">LATEST</span>
                 <span id="subStatusBadge" class="badge-premium-active" style="display: none; margin-left: 8px;">✨ Premium Active</span>
               </div>
@@ -537,6 +535,14 @@
         document.getElementById('videoDate').textContent = formatDate(video.created_at);
         document.getElementById('categoryBadge').textContent = (video.category || 'LATEST').toUpperCase();
         document.getElementById('videoDescription').textContent = video.description || 'No description provided.';
+
+        const durationBadge = document.getElementById('videoDurationBadge');
+        const durationSep = document.getElementById('videoDurationSep');
+        if (durationBadge && video.duration) {
+          durationBadge.textContent = video.duration;
+          durationBadge.style.display = 'inline-block';
+          if (durationSep) durationSep.style.display = 'inline';
+        }
 
         const player = document.getElementById('detailPlayer');
         const lockOverlay = document.getElementById('videoLockOverlay');
