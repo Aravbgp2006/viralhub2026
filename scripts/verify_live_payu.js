@@ -121,7 +121,7 @@ async function verifyLivePayU() {
   // 3. Create Live PayU Order
   console.log('\n--- 3. Live POST /api/entitlements/create-order ---');
   const orderRes = await request('POST', '/api/entitlements/create-order', {}, {
-    video_id: 41,
+    video_id: 92,
     email: 'live_test_' + Date.now() + '@viralhub.com',
     phone: '+919876543210'
   });
@@ -162,7 +162,7 @@ async function verifyLivePayU() {
   // 5. Verification without valid payment fails
   console.log('\n--- 5. Live POST /api/entitlements/verify (Anti-fraud Protection) ---');
   const verifyRes = await request('POST', '/api/entitlements/verify', {}, {
-    video_id: 41,
+    video_id: 92,
     txnid: orderData.txnid
   });
   assert('Uncompleted / unpaid transaction rejected with 400 Bad Request', verifyRes.statusCode === 400);
@@ -171,10 +171,10 @@ async function verifyLivePayU() {
 
   // 6. Video State Integrity
   console.log('\n--- 6. Video State Integrity ---');
-  const v41Res = await request('GET', '/api/videos/41');
-  const v41 = v41Res.json;
-  assert('Unpurchased visitor receives is_locked: true', v41?.video?.is_locked === true);
-  assert('Protected video_url is null for unpurchased visitor', v41?.video?.video_url === null);
+  const v92Res = await request('GET', '/api/videos/92');
+  const v92 = v92Res.json;
+  assert('Unpurchased visitor receives is_locked: true', v92?.video?.is_locked === true);
+  assert('Protected video_url is null for unpurchased visitor', v92?.video?.video_url === null);
 
   console.log('\n======================================================================');
   console.log(`LIVE PRODUCTION RESULTS: ${passed} PASSED, ${failed} FAILED`);

@@ -8,6 +8,130 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>">
   <script defer src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <style>
+    .inapp-browser-banner {
+      background: #fffbeb;
+      border-bottom: 1px solid #fde68a;
+      color: #92400e;
+      padding: 10px 16px;
+      font-size: 0.875rem;
+      position: relative;
+      z-index: 100;
+    }
+    .inapp-banner-content {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .inapp-banner-text {
+      flex: 1;
+      min-width: 240px;
+      line-height: 1.4;
+      font-size: 0.8125rem;
+      color: #78350f;
+    }
+    .inapp-banner-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-banner-action {
+      background: #111111;
+      color: #ffffff !important;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 4px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid #111111;
+      cursor: pointer;
+    }
+    .btn-banner-action.secondary {
+      background: #ffffff;
+      color: #111111 !important;
+      border-color: #d1d5db;
+    }
+    .btn-banner-dismiss {
+      background: transparent;
+      border: none;
+      color: #92400e;
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    .inapp-checkout-card {
+      background: #fefce8;
+      border: 1px solid #fef08a;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+    }
+    .inapp-card-badge {
+      display: inline-block;
+      font-weight: 700;
+      font-size: 0.75rem;
+      color: #854d0e;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+    .inapp-card-desc {
+      font-size: 0.8125rem;
+      color: #713f12;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+    .inapp-card-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .btn-chrome-launch {
+      background: #000000;
+      color: #ffffff !important;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      padding: 9px 14px;
+      border-radius: 4px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border: 1px solid #000000;
+      cursor: pointer;
+      flex: 1;
+      min-width: 180px;
+    }
+    .btn-copy-url {
+      background: #ffffff;
+      color: #111111 !important;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      padding: 9px 12px;
+      border-radius: 4px;
+      border: 1px solid #d1d5db;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .inapp-card-note {
+      font-size: 0.75rem;
+      color: #854d0e;
+      border-top: 1px dashed #fef08a;
+      padding-top: 6px;
+      line-height: 1.35;
+    }
+  </style>
 </head>
 <body>
 
@@ -37,6 +161,21 @@
         </div>
       </div>
     </header>
+
+    <!-- In-App Browser (Instagram / Facebook / WebView) Notice Banner -->
+    <div id="inAppBrowserBanner" class="inapp-browser-banner" style="display: none;">
+      <div class="inapp-banner-content">
+        <div class="inapp-banner-text">
+          <span style="font-size: 1.125rem; vertical-align: middle; margin-right: 4px;">⚠️</span>
+          <strong>Instagram Browser Detected:</strong> UPI apps (Google Pay, PhonePe, Paytm) require Chrome or Safari to launch directly.
+        </div>
+        <div class="inapp-banner-actions">
+          <a id="bannerOpenChromeBtn" href="#" class="btn-banner-action">🚀 Open in Chrome</a>
+          <button id="bannerCopyLinkBtn" type="button" class="btn-banner-action secondary">📋 Copy Link</button>
+          <button id="bannerDismissBtn" type="button" class="btn-banner-dismiss" aria-label="Dismiss banner">✕</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Main Container -->
     <main class="main-content" style="padding-top: 24px;">
@@ -200,6 +339,27 @@
 
           <div id="checkoutErrorBanner" class="form-error-banner" style="display: none; margin-bottom: 12px;"></div>
 
+          <!-- In-App Browser Guidance & Chrome Breakout Card -->
+          <div id="inAppCheckoutCard" class="inapp-checkout-card" style="display: none;">
+            <div class="inapp-card-header">
+              <span class="inapp-card-badge">📱 Instagram Browser Notice</span>
+            </div>
+            <p class="inapp-card-desc">
+              Instagram's in-app browser blocks Google Pay and PhonePe apps from opening automatically. For 1-tap UPI app payment, open this page in Chrome:
+            </p>
+            <div class="inapp-card-buttons">
+              <a id="modalOpenChromeBtn" href="#" class="btn-chrome-launch">
+                <span>🚀 Open in Chrome for 1-Tap UPI</span>
+              </a>
+              <button type="button" id="modalCopyLinkBtn" class="btn-copy-url">
+                <span>📋 Copy Link</span>
+              </button>
+            </div>
+            <div class="inapp-card-note">
+              💡 <em>Continuing inside Instagram?</em> GPay/PhonePe 1-tap buttons may freeze. You can still pay using <strong>Debit / Credit Card</strong>, <strong>Net Banking</strong>, or select <strong>"Enter Any UPI ID"</strong> at the bottom of the PayU page.
+            </div>
+          </div>
+
           <div class="form-group">
             <label class="form-label" for="checkoutEmail">Your Email Address *</label>
             <input type="email" id="checkoutEmail" class="form-input" placeholder="name@example.com" required autocomplete="email">
@@ -207,8 +367,18 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="checkoutPhone">Mobile Number (Optional)</label>
-            <input type="tel" id="checkoutPhone" class="form-input" placeholder="+91 98765 43210" autocomplete="tel">
+            <label class="form-label" for="checkoutPhone">Mobile Number (for UPI & Cards) *</label>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-weight: 600; font-size: 0.875rem; color: var(--text-secondary); background: var(--bg-secondary); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); user-select: none;">+91</span>
+              <input type="tel" id="checkoutPhone" class="form-input" placeholder="9876543210" maxlength="10" pattern="[6-9][0-9]{9}" required autocomplete="tel" style="flex: 1;">
+            </div>
+            <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; display: block;">Required for instant UPI apps (Google Pay, PhonePe, Paytm, QR) &amp; Net Banking.</span>
+          </div>
+
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--text-muted);">
+            <span style="background: var(--bg-secondary); padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border-color);">⚡ UPI (GPay / PhonePe / Paytm / QR)</span>
+            <span style="background: var(--bg-secondary); padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border-color);">💳 Debit / Credit Cards</span>
+            <span style="background: var(--bg-secondary); padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border-color);">🏛️ Net Banking</span>
           </div>
         </div>
 
@@ -217,9 +387,6 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
             <span>Proceed to Payment (₹9/month)</span>
           </button>
-          <div id="testModeNotice" style="width: 100%; text-align: center; font-size: 0.75rem; color: var(--text-muted); display: none;">
-            <span>Development Mode Active · Razorpay Test Verification</span>
-          </div>
         </div>
       </form>
     </div>
@@ -256,6 +423,38 @@
     let isVideoLocked = false;
     let activeVideoData = null;
     let verifiedUnlocked = false;
+
+    function openCheckoutModal() {
+      const modal = document.getElementById('checkoutModal');
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+      }
+    }
+
+    function closeCheckoutModal() {
+      const modal = document.getElementById('checkoutModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+      }
+    }
+
+    function openRestoreModal() {
+      const modal = document.getElementById('restoreModal');
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('active');
+      }
+    }
+
+    function closeRestoreModal() {
+      const modal = document.getElementById('restoreModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+      }
+    }
 
     // Server-side payment verification and per-video entitlement unlock
     async function verifyPayment(txnidOrOrderId) {
@@ -334,8 +533,7 @@
           } catch (_) {}
         }
 
-        const checkoutModal = document.getElementById('checkoutModal');
-        if (checkoutModal) checkoutModal.style.display = 'none';
+        closeCheckoutModal();
         verifiedUnlocked = true;
         unlockVideoDirectly(verifyData.video_url || verifyData.stream_url);
         resetBtns();
@@ -555,7 +753,7 @@
         if (verifiedUnlocked || !video.is_locked) {
           // Unlocked state: hide overlay and checkout modal, load authorized stream and play
           isVideoLocked = false;
-          if (checkoutModal) checkoutModal.style.display = 'none';
+          closeCheckoutModal();
           lockOverlay.style.display = 'none';
           subBadge.style.display = 'inline-flex';
           if (data.is_admin) {
@@ -627,7 +825,7 @@
       const checkoutModal = document.getElementById('checkoutModal');
 
       // Hide payment/checkout modal & paywall overlay
-      if (checkoutModal) checkoutModal.style.display = 'none';
+      closeCheckoutModal();
       if (lockOverlay) lockOverlay.style.display = 'none';
 
       isVideoLocked = false;
@@ -684,6 +882,9 @@
       if (errorAlert) errorAlert.style.display = 'none';
       if (checkoutError) checkoutError.style.display = 'none';
 
+      if (!prefillEmail) prefillEmail = localStorage.getItem('vh_customer_email') || '';
+      if (!prefillPhone) prefillPhone = localStorage.getItem('vh_customer_phone') || '';
+
       if (unlockBtn) {
         unlockBtn.disabled = true;
         const span = unlockBtn.querySelector('span');
@@ -691,7 +892,7 @@
       }
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Opening Payment...';
+        submitBtn.innerHTML = '<span>Opening PayU Gateway...</span>';
       }
 
       function resetButtons() {
@@ -922,36 +1123,76 @@
     }
 
     document.getElementById('btnUnlockVideo').addEventListener('click', () => {
-      startPaymentFlow();
+      const emailInput = document.getElementById('checkoutEmail');
+      const phoneInput = document.getElementById('checkoutPhone');
+      const savedEmail = localStorage.getItem('vh_customer_email') || '';
+      const savedPhone = localStorage.getItem('vh_customer_phone') || '';
+      if (emailInput && !emailInput.value && savedEmail) emailInput.value = savedEmail;
+      if (phoneInput && !phoneInput.value && savedPhone) phoneInput.value = savedPhone;
+
+      const checkoutError = document.getElementById('checkoutErrorBanner');
+      if (checkoutError) checkoutError.style.display = 'none';
+      
+      openCheckoutModal();
+
+      if (emailInput && !emailInput.value) {
+        emailInput.focus();
+      } else if (phoneInput && !phoneInput.value) {
+        phoneInput.focus();
+      }
     });
 
     document.getElementById('btnCloseCheckoutModal').addEventListener('click', () => {
-      checkoutModal.style.display = 'none';
+      closeCheckoutModal();
     });
 
     document.getElementById('btnOpenRestoreModal').addEventListener('click', () => {
       document.getElementById('restoreErrorBanner').style.display = 'none';
-      restoreModal.style.display = 'flex';
+      openRestoreModal();
     });
 
     document.getElementById('btnCloseRestoreModal').addEventListener('click', () => {
-      restoreModal.style.display = 'none';
+      closeRestoreModal();
     });
 
     document.getElementById('btnCancelRestore').addEventListener('click', () => {
-      restoreModal.style.display = 'none';
+      closeRestoreModal();
     });
 
     window.addEventListener('click', (e) => {
-      if (e.target === checkoutModal) checkoutModal.style.display = 'none';
-      if (e.target === restoreModal) restoreModal.style.display = 'none';
+      if (e.target === checkoutModal) closeCheckoutModal();
+      if (e.target === restoreModal) closeRestoreModal();
     });
 
     // Checkout Form Submission
     document.getElementById('checkoutForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('checkoutEmail').value.trim();
-      const phone = document.getElementById('checkoutPhone').value.trim();
+      let phone = document.getElementById('checkoutPhone').value.trim().replace(/[^0-9]/g, '');
+      if (phone.length > 10) phone = phone.slice(-10);
+
+      const checkoutError = document.getElementById('checkoutErrorBanner');
+      if (!email || !email.includes('@')) {
+        if (checkoutError) {
+          checkoutError.textContent = 'Please enter a valid email address.';
+          checkoutError.style.display = 'block';
+        }
+        return;
+      }
+
+      if (!phone || phone.length !== 10 || !/^[6-9]\d{9}$/.test(phone)) {
+        if (checkoutError) {
+          checkoutError.textContent = 'Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).';
+          checkoutError.style.display = 'block';
+        }
+        return;
+      }
+
+      try {
+        localStorage.setItem('vh_customer_email', email);
+        localStorage.setItem('vh_customer_phone', phone);
+      } catch (_) {}
+
       startPaymentFlow(email, phone);
     });
 
@@ -1038,6 +1279,119 @@
       this.textContent = subscribed ? 'Subscribed' : 'Subscribe';
     });
 
+    // Detect in-app browsers (Instagram, Facebook, etc.) and configure Chrome intent breakout
+    function setupInAppBrowserDetection() {
+      const ua = navigator.userAgent || navigator.vendor || window.opera || '';
+      const isInstagram = /Instagram/i.test(ua);
+      const isFB = /FBAN|FBAV/i.test(ua);
+      const isAndroid = /Android/i.test(ua);
+      const isIOS = /iPhone|iPad|iPod/i.test(ua);
+      const isAndroidWebView = isAndroid && (/wv/i.test(ua) || /Version\/[0-9.]+/i.test(ua));
+      const isOtherInApp = /Snapchat|Bytedance|musical_ly|Line|Twitter/i.test(ua);
+
+      const isInApp = isInstagram || isFB || isAndroidWebView || isOtherInApp;
+      if (!isInApp) return;
+
+      const currentUrl = window.location.href;
+      // Android Intent URI to launch Chrome directly with URL fallback
+      const cleanHostPath = `${window.location.host}${window.location.pathname}${window.location.search}`;
+      const chromeIntentUrl = `intent://${cleanHostPath}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+
+      const banner = document.getElementById('inAppBrowserBanner');
+      const modalNotice = document.getElementById('inAppCheckoutCard');
+      const bannerOpenChrome = document.getElementById('bannerOpenChromeBtn');
+      const modalOpenChrome = document.getElementById('modalOpenChromeBtn');
+      const bannerCopyLink = document.getElementById('bannerCopyLinkBtn');
+      const modalCopyLink = document.getElementById('modalCopyLinkBtn');
+      const bannerDismiss = document.getElementById('bannerDismissBtn');
+
+      if (banner && !sessionStorage.getItem('vh_inapp_banner_dismissed')) {
+        banner.style.display = 'block';
+      }
+      if (modalNotice) {
+        modalNotice.style.display = 'block';
+      }
+
+      function copyPageUrl(btnElement) {
+        function showCopiedToast() {
+          const toast = document.getElementById('toastNotice');
+          if (toast) {
+            toast.textContent = 'Link copied! Open Chrome or Safari and paste to pay.';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3500);
+          }
+          if (btnElement) {
+            const orig = btnElement.innerHTML;
+            btnElement.innerHTML = '<span>✅ Copied!</span>';
+            setTimeout(() => { btnElement.innerHTML = orig; }, 2500);
+          }
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(currentUrl).then(showCopiedToast).catch(() => fallbackCopy());
+        } else {
+          fallbackCopy();
+        }
+
+        function fallbackCopy() {
+          const tempInput = document.createElement('input');
+          tempInput.value = currentUrl;
+          document.body.appendChild(tempInput);
+          tempInput.select();
+          try {
+            document.execCommand('copy');
+            showCopiedToast();
+          } catch (_) {}
+          document.body.removeChild(tempInput);
+        }
+      }
+
+      function handleChromeClick(e) {
+        if (isAndroid) {
+          window.location.href = chromeIntentUrl;
+        } else if (isIOS) {
+          e.preventDefault();
+          copyPageUrl(e.currentTarget);
+          alert('Link copied! Please open Safari or Chrome and paste the link to complete your UPI payment.');
+        } else {
+          window.open(currentUrl, '_system');
+        }
+      }
+
+      if (bannerOpenChrome) {
+        if (isAndroid) {
+          bannerOpenChrome.href = chromeIntentUrl;
+        } else {
+          bannerOpenChrome.textContent = '📋 Copy Link for Safari';
+        }
+        bannerOpenChrome.addEventListener('click', handleChromeClick);
+      }
+
+      if (modalOpenChrome) {
+        if (isAndroid) {
+          modalOpenChrome.href = chromeIntentUrl;
+        } else {
+          modalOpenChrome.textContent = '📋 Copy Link for Safari';
+        }
+        modalOpenChrome.addEventListener('click', handleChromeClick);
+      }
+
+      if (bannerCopyLink) {
+        bannerCopyLink.addEventListener('click', () => copyPageUrl(bannerCopyLink));
+      }
+      if (modalCopyLink) {
+        modalCopyLink.addEventListener('click', () => copyPageUrl(modalCopyLink));
+      }
+
+      if (bannerDismiss) {
+        bannerDismiss.addEventListener('click', () => {
+          if (banner) banner.style.display = 'none';
+          try { sessionStorage.setItem('vh_inapp_banner_dismissed', '1'); } catch (_) {}
+        });
+      }
+    }
+
+    setupInAppBrowserDetection();
     initVideoPage();
   </script>
 </body>

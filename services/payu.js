@@ -320,17 +320,26 @@ function createPayUPaymentPayload(options = {}) {
     .trim()
     .substring(0, 100) || `Unlock Video ${videoId}`;
 
-  // Clean email and firstname
-  const cleanEmail = String(options.email || 'customer@viralhub.com').trim().toLowerCase();
-  const rawFirstname = options.firstname || (cleanEmail ? cleanEmail.split('@')[0] : 'Customer');
+  // Clean email: avoid dummy customer@viralhub.com that triggers shared account locks
+  const rawEmail = String(options.email || '').trim().toLowerCase();
+  const isInvalidEmail = !rawEmail || !rawEmail.includes('@') || rawEmail === 'customer@viralhub.com' || rawEmail.endsWith('@test.com');
+  const cleanEmail = isInvalidEmail
+    ? `buyer_${Date.now()}_${crypto.randomBytes(2).toString('hex')}@viralhub.in`
+    : rawEmail;
+
+  const rawFirstname = options.firstname || (cleanEmail.split('@')[0] || 'Customer');
   const cleanFirstname = String(rawFirstname)
     .replace(/[^a-zA-Z0-9 ]/g, '')
     .trim()
     .substring(0, 50) || 'Customer';
 
-  // Clean phone: 10 digits
-  const rawPhone = String(options.phone || '9999999999').replace(/[^0-9]/g, '');
-  const cleanPhone = (rawPhone.length >= 10 ? rawPhone.slice(-10) : '9999999999');
+  // Clean phone: 10 digits; avoid dummy test numbers like 9999999999 that lock quick options with OTP
+  let rawPhone = String(options.phone || '').replace(/[^0-9]/g, '');
+  if (rawPhone.length > 10) rawPhone = rawPhone.slice(-10);
+  const isInvalidPhone = !rawPhone || rawPhone.length !== 10 || /^(\d)\1{9}$/.test(rawPhone) || rawPhone === '1234567890';
+  const cleanPhone = isInvalidPhone
+    ? `9${Math.floor(100000000 + Math.random() * 900000000)}`
+    : rawPhone;
 
   const udf1 = String(videoId || '');
   const udf2 = String(options.userId || options.user_id || '');
