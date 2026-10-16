@@ -103,8 +103,10 @@ async function verifyLivePayU() {
   assert('Unlock for ₹9/month button present', html.includes('Unlock for ₹9/month'));
   assert('Cashfree SDK removed from production video page', !html.includes('https://sdk.cashfree.com/js/v3/cashfree.js'));
   assert('PayU Production endpoint referenced', html.includes('https://secure.payu.in/_payment'));
-  assert('PAYU_SALT is NEVER in HTML source', !html.includes('lRaimQ1M70k662mAFCLwQBkZTXFO98X1'));
-  assert('PAYU_CLIENT_SECRET is NEVER in HTML source', !html.includes('25f7bc65786ad0a1cb8c5e75b690c086aa184af3e6d2f628dd273953e6f9a378'));
+  const salt = process.env.PAYU_SALT || '';
+  const clientSecret = process.env.PAYU_CLIENT_SECRET || '';
+  if (salt) assert('PAYU_SALT is NEVER in HTML source', !html.includes(salt));
+  if (clientSecret) assert('PAYU_CLIENT_SECRET is NEVER in HTML source', !html.includes(clientSecret));
 
   // 2. Fetch Live Entitlement Config
   console.log('\n--- 2. Live /api/entitlements/config ---');

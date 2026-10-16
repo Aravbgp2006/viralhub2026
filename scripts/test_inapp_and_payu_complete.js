@@ -2,10 +2,10 @@
  * scripts/test_inapp_and_payu_complete.js
  * 
  * Comprehensive E2E Verification for:
- * 1. Instagram Android In-App Browser detection & "Open in Chrome" intent fallback.
- * 2. Standard Android Chrome 1-tap UPI app behavior.
- * 3. Desktop viewport checkout behavior.
- * 4. Server-side payment verification & tamper resistance.
+ * 1. Direct PayU checkout initiation (NO extra popup modal or mandatory fields).
+ * 2. Instagram Android In-App Browser detection & discrete lock-screen Chrome fallback.
+ * 3. Standard Android Chrome 1-click PayU checkout.
+ * 4. Desktop viewport direct checkout behavior.
  */
 
 const dns = require('dns');
@@ -35,13 +35,12 @@ function assert(description, condition, details = '') {
 
 async function runTests() {
   console.log('================================================================');
-  console.log('E2E TEST: PAYU UPI CHECKOUT & INSTAGRAM FALLBACK VALIDATION');
+  console.log('E2E TEST: DIRECT PAYU CHECKOUT & STREAMLINED UX VALIDATION');
   console.log('================================================================');
 
   let browser = null;
   let server = null;
   try {
-    // Resolve external domains
     const domains = ['secure.payu.in', 'api.payu.in', 'info.payu.in', 'static.payu.in', 'web-assets.payu.in', 'viralhub2026-mu.vercel.app'];
     const rules = [];
     for (const d of domains) {
@@ -62,7 +61,6 @@ async function runTests() {
       args: chromeArgs
     });
 
-    // Start local server once
     const app = require('../server');
     server = http.createServer(app);
     await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -73,83 +71,56 @@ async function runTests() {
     // -------------------------------------------------------------------------
     // TEST SUITE 1: Instagram In-App Browser Simulation
     // -------------------------------------------------------------------------
-    console.log('\n[1/3] Testing Checkout in Instagram In-App Browser (Android WebView UA)...');
+    console.log('\n[1/3] Testing Instagram In-App Browser...');
     {
       const page = await browser.newPage();
       await page.setUserAgent(UA_INSTAGRAM_ANDROID);
       await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
 
       await page.goto(localUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await page.waitForSelector('#inAppBrowserBanner', { timeout: 10000 });
+      await page.waitForSelector('#playerWrapper', { timeout: 10000 });
 
-      // Verify top notice banner is displayed for Instagram UA
-      const bannerDisplay = await page.$eval('#inAppBrowserBanner', el => window.getComputedStyle(el).display);
-      assert('In-app browser notice banner is visible inside Instagram', bannerDisplay !== 'none', `display=${bannerDisplay}`);
+      // Verify NO intrusive top banner is shown
+      const banner = await page.$('#inAppBrowserBanner');
+      assert('Intrusive top notice banner has been removed', !banner);
 
-      const bannerText = await page.$eval('#inAppBrowserBanner', el => el.textContent);
-      assert('Notice banner explicitly identifies Instagram Browser', bannerText.includes('Instagram Browser Detected'));
+      // Verify discrete fallback options on the lock screen
+      const fallbackDisplay = await page.$eval('#inAppBrowserFallback', el => window.getComputedStyle(el).display);
+      assert('In-app fallback options are displayed on the lock screen', fallbackDisplay !== 'none');
 
-      const bannerChromeHref = await page.$eval('#bannerOpenChromeBtn', el => el.getAttribute('href') || el.href);
-      assert('Banner has valid Android Chrome intent URI', bannerChromeHref.startsWith('intent://') && bannerChromeHref.includes('package=com.android.chrome'), `href=${bannerChromeHref}`);
+      const chromeIntentHref = await page.$eval('#btnFallbackOpenChrome', el => el.getAttribute('href') || el.href);
+      assert('Open in Chrome has valid Android intent URI', chromeIntentHref.startsWith('intent://') && chromeIntentHref.includes('package=com.android.chrome'), `href=${chromeIntentHref}`);
 
-      // Open checkout modal
-      await page.click('#btnUnlockVideo');
-      await page.waitForFunction(() => {
-        const modal = document.getElementById('checkoutModal');
-        return modal && window.getComputedStyle(modal).display === 'flex';
-      }, { timeout: 5000 });
+      const copyBtn = await page.$('#btnFallbackCopyLink');
+      assert('Copy Link fallback button is present on lock screen', Boolean(copyBtn));
 
-      const modalDisplay = await page.$eval('#checkoutModal', el => window.getComputedStyle(el).display);
-      assert('Checkout modal opens successfully', modalDisplay === 'flex', `display=${modalDisplay}`);
-
-      // Verify guidance card inside checkout modal
-      const modalNoticeDisplay = await page.$eval('#inAppCheckoutCard', el => window.getComputedStyle(el).display);
-      assert('Guidance card is visible inside checkout modal', modalNoticeDisplay !== 'none', `display=${modalNoticeDisplay}`);
-
-      const modalChromeHref = await page.$eval('#modalOpenChromeBtn', el => el.getAttribute('href') || el.href);
-      assert('Modal has direct "Open in Chrome" intent button', modalChromeHref.startsWith('intent://') && modalChromeHref.includes('package=com.android.chrome'), `href=${modalChromeHref}`);
-
-      const modalCopyBtn = await page.$('#modalCopyLinkBtn');
-      assert('Modal has "Copy Link" fallback button', Boolean(modalCopyBtn));
-
-      const cardText = await page.$eval('#inAppCheckoutCard', el => el.textContent);
-      assert('Guidance card explains UPI app blocking & in-app alternatives (Cards, Net Banking, Enter UPI ID)',
-        cardText.includes('Debit / Credit Card') && cardText.includes('Net Banking') && cardText.includes('Enter Any UPI ID'));
+      // Verify no extra checkout modal exists
+      const checkoutModal = await page.$('#checkoutModal');
+      assert('Separate checkout modal has been completely removed', !checkoutModal);
 
       await page.close();
     }
 
     // -------------------------------------------------------------------------
-    // TEST SUITE 2: Standard Android Chrome Simulation
+    // TEST SUITE 2: Standard Android Chrome Direct 1-Click PayU Initiation
     // -------------------------------------------------------------------------
-    console.log('\n[2/3] Testing Checkout in Standard Android Chrome...');
+    console.log('\n[2/3] Testing Standard Android Chrome Direct 1-Click PayU Initiation...');
     {
       const page = await browser.newPage();
       await page.setUserAgent(UA_CHROME_ANDROID);
       await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
 
       await page.goto(localUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await page.waitForSelector('#playerWrapper', { timeout: 10000 });
-
-      // In regular Android Chrome, banner should NOT be displayed (clean standard UX)
-      const bannerDisplay = await page.$eval('#inAppBrowserBanner', el => window.getComputedStyle(el).display);
-      assert('In-app banner is NOT shown in regular Chrome', bannerDisplay === 'none', `display=${bannerDisplay}`);
-
-      // Open checkout modal
-      await page.click('#btnUnlockVideo');
       await page.waitForFunction(() => {
-        const modal = document.getElementById('checkoutModal');
-        return modal && window.getComputedStyle(modal).display === 'flex';
-      }, { timeout: 5000 });
+        const btn = document.getElementById('btnUnlockVideo');
+        return btn && btn.offsetParent !== null;
+      }, { timeout: 10000 });
 
-      const modalNoticeDisplay = await page.$eval('#inAppCheckoutCard', el => window.getComputedStyle(el).display);
-      assert('In-app modal notice is NOT shown in regular Chrome', modalNoticeDisplay === 'none', `display=${modalNoticeDisplay}`);
+      // In regular Chrome, in-app fallback should be hidden
+      const fallbackDisplay = await page.$eval('#inAppBrowserFallback', el => window.getComputedStyle(el).display);
+      assert('In-app fallback is hidden in regular Chrome', fallbackDisplay === 'none');
 
-      // Fill valid email & phone
-      await page.type('#checkoutEmail', 'testcustomer@gmail.com');
-      await page.type('#checkoutPhone', '9876543210');
-
-      // Intercept navigation to PayU
+      // Intercept direct POST navigation to PayU
       let navigatedToPayU = false;
       let payuRequestData = null;
       page.on('request', req => {
@@ -159,16 +130,17 @@ async function runTests() {
         }
       });
 
-      // Submit form
-      await page.click('#btnSubmitPayment');
-      await new Promise(r => setTimeout(r, 2000));
+      // Click Unlock button directly (NO intermediate modal!)
+      await page.click('#btnUnlockVideo');
+      await new Promise(r => setTimeout(r, 2500));
 
-      assert('Form submission targets PayU Production checkout endpoint', navigatedToPayU);
+      assert('Clicking Unlock directly initiates PayU checkout (zero extra modal)', navigatedToPayU);
       if (payuRequestData) {
         assert('PayU request includes txnid', payuRequestData.includes('txnid=tx_vid_'));
-        assert('PayU request includes sanitized phone', payuRequestData.includes('phone=9876543210'));
-        assert('PayU request includes customer email', payuRequestData.includes('email=testcustomer%40gmail.com'));
-        assert('PayU request includes surl callback', payuRequestData.includes('surl='));
+        assert('PayU request includes valid amount (₹9)', payuRequestData.includes('amount=9.00'));
+        assert('PayU request includes success callback surl', payuRequestData.includes('surl='));
+        assert('PayU request includes failure callback furl', payuRequestData.includes('furl='));
+        assert('PayU request includes SHA-512 cryptographic hash', payuRequestData.includes('hash='));
       }
 
       await page.close();
@@ -177,25 +149,30 @@ async function runTests() {
     // -------------------------------------------------------------------------
     // TEST SUITE 3: Desktop Viewport Simulation
     // -------------------------------------------------------------------------
-    console.log('\n[3/3] Testing Checkout in Desktop Viewport...');
+    console.log('\n[3/3] Testing Desktop Viewport Direct Checkout...');
     {
       const page = await browser.newPage();
       await page.setViewport({ width: 1280, height: 800 });
 
       await page.goto(localUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await page.waitForSelector('#playerWrapper', { timeout: 10000 });
+      await page.waitForFunction(() => {
+        const btn = document.getElementById('btnUnlockVideo');
+        return btn && btn.offsetParent !== null;
+      }, { timeout: 10000 });
 
-      const bannerDisplay = await page.$eval('#inAppBrowserBanner', el => window.getComputedStyle(el).display);
-      assert('Notice banner is hidden on Desktop', bannerDisplay === 'none');
+      const fallbackDisplay = await page.$eval('#inAppBrowserFallback', el => window.getComputedStyle(el).display);
+      assert('In-app fallback is hidden on Desktop', fallbackDisplay === 'none');
+
+      let navigatedToPayU = false;
+      page.on('request', req => {
+        if (req.url().includes('secure.payu.in/_payment')) {
+          navigatedToPayU = true;
+        }
+      });
 
       await page.click('#btnUnlockVideo');
-      await page.waitForFunction(() => {
-        const modal = document.getElementById('checkoutModal');
-        return modal && window.getComputedStyle(modal).display === 'flex';
-      }, { timeout: 5000 });
-
-      const modalDisplay = await page.$eval('#checkoutModal', el => window.getComputedStyle(el).display);
-      assert('Modal opens smoothly on Desktop', modalDisplay === 'flex');
+      await new Promise(r => setTimeout(r, 2000));
+      assert('Clicking Unlock on Desktop directly initiates PayU checkout', navigatedToPayU);
 
       await page.close();
     }

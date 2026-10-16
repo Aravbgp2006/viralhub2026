@@ -19,3 +19,17 @@ database/*.db-wal
 database/*.db-shm
 .env*
 scripts/*.png
+scripts/**/*.png
+scripts/**/*.html
+scripts/**/*.json
+scripts/bolt_test/
+scripts/desktop_test/
+scripts/fixed_checkout_test/
+scripts/gpay_debug/
+scripts/instagram_test/
+scripts/method_tests/
+scripts/options_test/
+scripts/phonepe_test/
+scripts/real_phone_test/
+scripts/repro_screenshots/
+scripts/repro_step_by_step/
