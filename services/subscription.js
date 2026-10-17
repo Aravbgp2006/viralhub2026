@@ -17,7 +17,7 @@ const RAZORPAY_PLAN_ID = (process.env.RAZORPAY_PLAN_ID || '').trim();
 const RAZORPAY_WEBHOOK_SECRET = (process.env.RAZORPAY_WEBHOOK_SECRET || '').trim();
 const RAZORPAY_PAYMENT_LINK_URL = (process.env.RAZORPAY_PAYMENT_LINK_URL || '').trim();
 
-const PLAN_PRICE = '₹9/month';
+const PLAN_PRICE = '₹9';
 const PLAN_AMOUNT = 900; // in paise: 900 paise = 9 INR
 
 let razorpayInstance = null;

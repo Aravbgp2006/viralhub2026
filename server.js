@@ -688,11 +688,11 @@ app.get('/api/videos/:id', async (req, res) => {
       entitlement: {
         video_id: videoId,
         active: isEntitled,
-        price: '₹9/month'
+        price: '₹9'
       },
       subscription: {
         active: isEntitled,
-        plan_price: '₹9/month'
+        plan_price: '₹9'
       }
     });
   } catch (err) {

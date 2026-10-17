@@ -343,7 +343,7 @@ function createPayUPaymentPayload(options = {}) {
 
   const udf1 = String(videoId || '');
   const udf2 = String(options.userId || options.user_id || '');
-  const udf3 = options.planType || 'monthly';
+  const udf3 = options.planType || 'onetime';
   const udf4 = '';
   const udf5 = '';
 

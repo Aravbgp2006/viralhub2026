@@ -62,7 +62,7 @@ function getPublicEntitlementConfig(videoId) {
     provider: 'payu',
     payment_url: payuConfig.payment_url,
     price: VIDEO_PRICE,
-    plan_price: '₹9/month',
+    plan_price: '₹9',
     amount: VIDEO_AMOUNT_PAISE,
     currency: 'INR',
     is_configured: isPayuReady,

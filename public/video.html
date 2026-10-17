@@ -143,10 +143,10 @@
                   </svg>
                 </div>
                 <h2 class="lock-title">Video Locked</h2>
-                <p class="lock-subtitle">Unlock Premium Access</p>
-                <div class="lock-price-tag">₹9<span class="lock-price-period">/month</span></div>
-                <button id="btnUnlockVideo" class="btn-unlock-premium" type="button" aria-label="Unlock for ₹9/month">
-                  <span>Unlock for ₹9/month</span>
+                <p class="lock-subtitle">Unlock Video Access</p>
+                <div class="lock-price-tag">₹9<span class="lock-price-period"> (one-time)</span></div>
+                <button id="btnUnlockVideo" class="btn-unlock-premium" type="button" aria-label="Unlock for ₹9">
+                  <span>Unlock for ₹9</span>
                 </button>
                 <div class="lock-checkout-tip" id="lockCheckoutTip">
                   <span class="tip-badge">UPI TIP</span>
@@ -168,7 +168,7 @@
                     </button>
                   </div>
                   <p class="inapp-fallback-hint">
-                    Or tap <strong>Unlock</strong> to pay inside Instagram via Card, Net Banking, or UPI Collect.
+                    Or tap <strong>Unlock for ₹9</strong> to pay inside Instagram via Card, Net Banking, or UPI Collect.
                   </p>
                 </div>
 
@@ -342,13 +342,13 @@
         if (unlockBtn) {
           unlockBtn.disabled = false;
           const span = unlockBtn.querySelector('span');
-          if (span) span.textContent = 'Unlock for ₹9/month';
+          if (span) span.textContent = 'Unlock for ₹9';
         }
         if (submitBtn) {
           submitBtn.disabled = false;
           submitBtn.innerHTML = `
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            <span>Proceed to Payment (₹9/month)</span>
+            <span>Proceed to Payment (₹9)</span>
           `;
         }
       }
@@ -761,13 +761,13 @@
         if (unlockBtn) {
           unlockBtn.disabled = false;
           const span = unlockBtn.querySelector('span');
-          if (span) span.textContent = 'Unlock for ₹9/month';
+          if (span) span.textContent = 'Unlock for ₹9';
         }
         if (submitBtn) {
           submitBtn.disabled = false;
           submitBtn.innerHTML = `
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            <span>Proceed to Payment (₹9/month)</span>
+            <span>Proceed to Payment (₹9)</span>
           `;
         }
       }
@@ -902,7 +902,7 @@
               amount: orderData.amount || 900,
               currency: 'INR',
               name: 'Latest Viral Videos 2026',
-              description: `Unlock Video #${currentVideoId} (₹9/month)`,
+              description: `Unlock Video #${currentVideoId} (₹9)`,
               image: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%23000000%22/><polygon points=%2240,30 75,50 40,70%22 fill=%22%23ffffff%22/></svg>',
               prefill: {
                 email: prefillEmail || '',
@@ -1149,10 +1149,10 @@
       }
 
       function handleChromeClick(e) {
+        e.preventDefault();
         if (isAndroid) {
           window.location.href = chromeIntentUrl;
         } else if (isIOS) {
-          e.preventDefault();
           copyPageUrl(e.currentTarget);
           alert('Link copied! Please open Safari or Chrome and paste the link to complete your payment.');
         } else {

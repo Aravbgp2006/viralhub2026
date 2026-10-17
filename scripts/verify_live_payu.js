@@ -98,9 +98,9 @@ async function verifyLivePayU() {
   const html = htmlRes.data;
 
   assert('Video Locked header present', html.includes('Video Locked'));
-  assert('Unlock Premium Access subtitle present', html.includes('Unlock Premium Access'));
-  assert('₹9/month pricing tag present', html.includes('₹9') && html.includes('/month'));
-  assert('Unlock for ₹9/month button present', html.includes('Unlock for ₹9/month'));
+  assert('Unlock Video Access subtitle present', html.includes('Unlock Video Access') || html.includes('Unlock Premium Access'));
+  assert('₹9 pricing tag present', html.includes('₹9'));
+  assert('Unlock for ₹9 button present', html.includes('Unlock for ₹9'));
   assert('Cashfree SDK removed from production video page', !html.includes('https://sdk.cashfree.com/js/v3/cashfree.js'));
   assert('PayU Production endpoint referenced', html.includes('https://secure.payu.in/_payment'));
   const salt = process.env.PAYU_SALT || '';
